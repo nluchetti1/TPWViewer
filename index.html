@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mid-Atlantic MIMIC-TPW2 Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0d0d0d;
+            --accent-color: #00ffcc;
+            --border-color: #333;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        h2 { 
+            margin: 0 0 5px 0; 
+            font-weight: 300; 
+            letter-spacing: 3px; 
+            font-size: 1.2rem;
+            color: #fff;
+        }
+
+        .timestamp { 
+            font-size: 0.75rem; 
+            color: var(--accent-color); 
+            margin-bottom: 15px; 
+            font-family: monospace;
+        }
+
+        /* The Viewport Window */
+        .map-container {
+            width: 95vw;
+            height: 70vh;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            position: relative;
+            background-color: #000;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+        }
+
+        /* The Satellite Image */
+        #satellite-img {
+            position: absolute;
+            width: 380%; 
+            left: -215%; 
+            top: -115%; 
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        /* Legend Overlay */
+        .legend-container {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.75);
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .legend-container img { height: 35px; filter: contrast(1.2); }
+        .legend-label { font-size: 9px; letter-spacing: 1px; margin-bottom: 4px; color: #aaa; }
+
+        /* Controls */
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            background: #222;
+            border: 1px solid var(--border-color);
+            color: #aaa;
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        button:hover { background: #333; color: #fff; }
+        button.active {
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+            background: rgba(0, 255, 204, 0.05);
+        }
+
+        .footer {
+            margin-top: 15px;
+            font-size: 0.7rem;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>MID-ATLANTIC PRECIPITABLE WATER</h2>
+    <div id="status" class="timestamp">INITIALIZING...</div>
+    
+    <div class="map-container">
+        <img id="satellite-img" src="https://tropic.ssec.wisc.edu/real-time/mtpw2/webAnims/tpw_nrl_colors/conus/24hrs.gif" alt="MIMIC TPW">
+        
+        <div class="legend-container">
+            <div class="legend-label">TPW (mm)</div>
+            <img src="https://tropic.ssec.wisc.edu/real-time/mtpw2/images/legends/tpw_nrl_colors.png" alt="Scale">
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="btn-24" class="active" onclick="switchView('24hrs')">Latest 24 Hours</button>
+        <button id="btn-72" onclick="switchView('72hrs')">Latest 72 Hours</button>
+    </div>
+
+    <div class="footer">
+        DATA SOURCE: UW-MADISON CIMSS/SSEC MIMIC-TPW2
+    </div>
+
+    <script>
+        const imgElement = document.getElementById('satellite-img');
+        const statusElement = document.getElementById('status');
+
+        function switchView(timespan) {
+            // Update button styles
+            document.getElementById('btn-24').classList.remove('active');
+            document.getElementById('btn-72').classList.remove('active');
+            
+            if(timespan === '24hrs') {
+                document.getElementById('btn-24').classList.add('active');
+            } else {
+                document.getElementById('btn-72').classList.add('active');
+            }
+
+            // Update Image Source
+            const newSrc = `https://tropic.ssec.wisc.edu/real-time/mtpw2/webAnims/tpw_nrl_colors/conus/${timespan}.gif`;
+            imgElement.src = newSrc + "?t=" + new Date().getTime(); // Cache buster
+            
+            updateStatus(`SWITCHED TO ${timespan.toUpperCase()}`);
+        }
+
+        function updateStatus(msg) {
+            const now = new Date();
+            statusElement.innerText = `${msg} | LAST REFRESH: ${now.toLocaleTimeString()}`;
+        }
+
+        // Auto-refresh every 15 mins to catch the hourly updates from SSEC
+        setInterval(() => {
+            const currentSrc = imgElement.src.split('?')[0];
+            imgElement.src = currentSrc + "?t=" + new Date().getTime();
+            updateStatus("AUTO-REFRESHED");
+        }, 900000);
+
+        updateStatus("SYNCED");
+    </script>
+</body>
+</html>
