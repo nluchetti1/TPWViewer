@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Southeast Moisture Loop</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💧</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --abyss:#061A2B; --deep:#0A2238; --glass:rgba(13,40,62,.62); --edge:#1F4A66;
+  --ice:#8FEFFF; --amber:#FFB547; --ink:#DCEFF7; --mute:#7FA3B8; --warn:#FF5E7A;
+  --display:"Chakra Petch","Barlow",system-ui,sans-serif;
+  --ui:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:radial-gradient(120% 90% at 30% 0%,#0E3150 0%,var(--abyss) 55%) fixed,var(--abyss);
+  color:var(--ink);font:15px/1.45 var(--ui);font-variant-numeric:tabular-nums;
+  padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0);
+}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+.app{display:grid;grid-template-columns:minmax(0,1fr) 316px;grid-template-rows:auto minmax(0,1fr) auto;
+  gap:14px 18px;max-width:1680px;margin:0 auto;padding:18px 22px 20px;min-height:100%}
+
+/* ---------- header: the valid time is the headline */
+header{grid-column:1/-1;display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.title{display:flex;flex-direction:column;gap:2px}
+.title h1{margin:0;font:500 15px/1.2 var(--ui);color:var(--mute);letter-spacing:.01em}
+.clock{font:600 clamp(28px,4.2vw,46px)/1 var(--display);letter-spacing:.02em;color:var(--ice);
+  text-shadow:0 0 18px rgba(143,239,255,.35)}
+.clock small{font:500 .42em/1 var(--display);color:var(--mute);margin-left:.6em;text-shadow:none;letter-spacing:.03em}
+.fresh{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mute)}
+.led{width:10px;height:10px;border-radius:50%;background:var(--mute);box-shadow:0 0 0 3px rgba(127,163,184,.15)}
+.led.ok{background:#5CF2B0;box-shadow:0 0 10px #5CF2B0}
+.led.stale{background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.led.old{background:var(--warn);box-shadow:0 0 10px var(--warn)}
+
+/* ---------- stage */
+.stagewrap{grid-column:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+.stage{position:relative;width:100%;aspect-ratio:3/2;background:#0B1F33;overflow:hidden;cursor:crosshair;
+  border:1px solid var(--edge);border-radius:4px;box-shadow:0 30px 80px -40px rgba(0,0,0,.8),inset 0 0 0 1px rgba(143,239,255,.05)}
+.stage>*{position:absolute;inset:0;width:100%;height:100%}
+.stage img{object-fit:fill;pointer-events:none;user-select:none}
+#base{image-rendering:auto}
+.reticle{pointer-events:none}
+.reticle i{position:absolute;width:26px;height:26px;border:2px solid var(--ice);opacity:.8}
+.reticle i:nth-child(1){top:8px;left:8px;border-right:0;border-bottom:0}
+.reticle i:nth-child(2){top:8px;right:8px;border-left:0;border-bottom:0}
+.reticle i:nth-child(3){bottom:8px;left:8px;border-right:0;border-top:0}
+.reticle i:nth-child(4){bottom:8px;right:8px;border-left:0;border-top:0}
+.sweep{pointer-events:none;background:linear-gradient(90deg,transparent 0,rgba(143,239,255,.0) 40%,rgba(143,239,255,.28) 50%,transparent 51%);
+  transform:translateX(-100%);opacity:0}
+.sweep.run{animation:sweep 1.6s cubic-bezier(.5,0,.3,1) 1;opacity:1}
+@keyframes sweep{to{transform:translateX(100%)}}
+.marker{position:absolute;width:0;height:0;pointer-events:none}
+.marker::before{content:"";position:absolute;left:-6px;top:-6px;width:12px;height:12px;border:2px solid var(--amber);transform:rotate(45deg);
+  box-shadow:0 0 10px rgba(255,181,71,.6)}
+.marker span{position:absolute;left:12px;top:-9px;font:500 12px/1 var(--display);color:var(--amber);white-space:nowrap;
+  text-shadow:0 0 4px #061A2B,0 0 8px #061A2B}
+.notice{position:absolute;inset:auto auto 16px 16px;width:auto;height:auto;padding:6px 10px;border-radius:3px;
+  background:rgba(6,26,43,.82);border:1px solid var(--edge);font-size:13px;color:var(--amber);display:none}
+.readout{position:absolute;inset:auto;width:auto;height:auto;pointer-events:none;padding:8px 10px;border-radius:3px;
+  background:rgba(6,26,43,.88);border:1px solid rgba(143,239,255,.35);font-size:13px;line-height:1.35;display:none;
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);min-width:150px}
+.readout b{font:600 18px/1.1 var(--display);color:var(--ice);display:block}
+.readout em{font-style:normal;color:var(--mute)}
+.loading{position:absolute;inset:0;display:grid;place-items:center;font:500 16px var(--display);color:var(--mute);pointer-events:none}
+
+/* ---------- transport + timeline (the signature element) */
+.transport{display:flex;align-items:center;gap:12px}
+.btn{border:1px solid var(--edge);background:var(--glass);border-radius:3px;height:38px;min-width:38px;padding:0 10px;cursor:pointer;
+  display:inline-grid;place-items:center}
+.btn:hover{border-color:var(--ice)}
+.btn.play{min-width:52px;border-color:var(--ice);color:var(--ice)}
+.btn svg{width:16px;height:16px;fill:currentColor}
+.track{position:relative;flex:1;height:44px;cursor:pointer;touch-action:none}
+.track .rail{position:absolute;left:0;right:0;top:20px;height:4px;background:#12324C;border-radius:2px}
+.track .ticks{position:absolute;inset:0}
+.track .tk{position:absolute;top:14px;width:2px;height:16px;margin-left:-1px;background:#2C5877;border-radius:1px}
+.track .tk.tpw{background:#4E88AD}
+.track .tk.miss{background:transparent;border:1px dashed #3B5E77;width:3px}
+.track .tk.major{top:10px;height:24px}
+.track .lab{position:absolute;top:34px;transform:translateX(-50%);font:500 11px/1 var(--display);color:var(--mute);white-space:nowrap}
+.track .head{position:absolute;top:6px;width:4px;height:32px;margin-left:-2px;background:var(--ice);border-radius:2px;
+  box-shadow:0 0 12px var(--ice),0 0 26px rgba(143,239,255,.5)}
+.track .glow{position:absolute;top:20px;height:4px;left:0;background:linear-gradient(90deg,rgba(143,239,255,0),rgba(143,239,255,.6));border-radius:2px}
+.frameinfo{font:500 13px var(--display);color:var(--mute);min-width:62px;text-align:right}
+
+/* ---------- side panel */
+aside{grid-column:2;grid-row:2/4;display:flex;flex-direction:column;gap:16px;padding:16px;border:1px solid var(--edge);
+  border-radius:4px;background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);align-self:start}
+.group{display:flex;flex-direction:column;gap:7px}
+.group>label,.group>.lbl{font-size:13px;color:var(--mute)}
+.seg{display:flex;border:1px solid var(--edge);border-radius:3px;overflow:hidden}
+.seg button{flex:1;border:0;background:transparent;padding:7px 6px;cursor:pointer;font-size:14px;color:var(--mute)}
+.seg button+button{border-left:1px solid var(--edge)}
+.seg button[aria-pressed="true"]{background:rgba(143,239,255,.14);color:var(--ice)}
+select{width:100%;appearance:none;-webkit-appearance:none;background:#0B2438 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238FEFFF' stroke-width='1.6' fill='none'/%3E%3C/svg%3E") no-repeat right 12px center;
+  border:1px solid var(--edge);border-radius:3px;padding:9px 34px 9px 11px;font-size:15px;cursor:pointer}
+select:hover{border-color:var(--ice)}
+select.hot{border-color:var(--amber);box-shadow:0 0 0 1px rgba(255,181,71,.25)}
+optgroup{background:#0B2438;color:var(--mute)}
+option{background:#0B2438;color:var(--ink)}
+input[type=range]{width:100%;accent-color:var(--ice)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px}
+.toggles{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}
+.tg{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;user-select:none}
+.tg input{appearance:none;-webkit-appearance:none;width:30px;height:16px;border-radius:8px;background:#12324C;border:1px solid var(--edge);position:relative;cursor:pointer;margin:0}
+.tg input::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--mute);transition:transform .15s}
+.tg input:checked{background:rgba(143,239,255,.25);border-color:var(--ice)}
+.tg input:checked::after{transform:translateX(14px);background:var(--ice)}
+.legend canvas{width:100%;height:16px;display:block;border-radius:2px}
+.cbticks{position:relative;height:16px;font:500 11px/1 var(--display);color:var(--mute)}
+.cbticks span{position:absolute;top:3px;transform:translateX(-50%)}
+.ovlnote{font-size:13px;color:var(--mute);min-height:1.4em}
+.refarrow{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
+.refarrow i{display:block;height:2px;background:#fff;position:relative}
+.refarrow i::after{content:"";position:absolute;right:-1px;top:-4px;border-left:8px solid #fff;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.foot{font-size:12px;color:var(--mute);line-height:1.5}
+.foot a{color:var(--ice)}
+.kbd{font-size:12px;color:var(--mute)}
+
+@media (max-width:980px){
+  .app{grid-template-columns:1fr;padding:12px}
+  aside{grid-column:1;grid-row:auto}
+  .stagewrap{grid-column:1}
+}
+@media (prefers-reduced-motion:reduce){.sweep{display:none}.tg input::after{transition:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="title">
+      <h1>Southeast moisture loop</h1>
+      <div class="clock" id="clock">Loading<small id="local"></small></div>
+    </div>
+    <div class="fresh"><span class="led" id="led"></span><span id="freshtxt">Checking data</span></div>
+  </header>
+
+  <div class="stagewrap">
+    <div class="stage" id="stage" aria-label="Precipitable water map">
+      <canvas id="base"></canvas>
+      <img id="ovl" alt="">
+      <img id="coast" alt="">
+      <canvas id="grid"></canvas>
+      <div id="marks"></div>
+      <div class="reticle"><i></i><i></i><i></i><i></i></div>
+      <div class="sweep" id="sweep"></div>
+      <div class="loading" id="loading">Syncing frames</div>
+      <div class="notice" id="notice"></div>
+      <div class="readout" id="readout"></div>
+    </div>
+    <div class="transport">
+      <button class="btn" id="prev" title="Previous frame (←)" aria-label="Previous frame"><svg viewBox="0 0 16 16"><path d="M3 2h2v12H3zM14 2v12L6 8z"/></svg></button>
+      <button class="btn play" id="play" title="Play or pause (space)" aria-label="Play or pause"><svg viewBox="0 0 16 16" id="playicon"><path d="M3 2h3.5v12H3zM9.5 2H13v12H9.5z"/></svg></button>
+      <button class="btn" id="next" title="Next frame (→)" aria-label="Next frame"><svg viewBox="0 0 16 16"><path d="M11 2h2v12h-2zM2 2v12l8-6z"/></svg></button>
+      <div class="track" id="track" role="slider" tabindex="0" aria-label="Frame time">
+        <div class="rail"></div><div class="glow" id="glow"></div><div class="ticks" id="ticks"></div><div class="head" id="head"></div>
+      </div>
+      <div class="frameinfo" id="frameinfo">0/0</div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="group">
+      <span class="lbl">Shaded field</span>
+      <div class="seg" id="baseSeg">
+        <button data-v="tpw" aria-pressed="true">MIMIC</button>
+        <button data-v="rap">RAP PW</button>
+        <button data-v="diff" title="MIMIC minus RAP">Difference</button>
+      </div>
+    </div>
+    <div class="group">
+      <label for="ovlSel">Model overlay</label>
+      <select id="ovlSel"><option value="none">None</option></select>
+      <div class="ovlnote" id="ovlnote"></div>
+      <div class="refarrow" id="refarrow" hidden><i id="refline"></i><span id="reftxt"></span></div>
+      <div class="row"><label for="opac">Overlay opacity</label><span id="opacv">100%</span></div>
+      <input type="range" id="opac" min="10" max="100" value="100">
+    </div>
+    <div class="group legend">
+      <div class="row"><span class="lbl" id="cbtitle">Total precipitable water</span>
+        <div class="seg" id="unitSeg" style="width:94px"><button data-v="mm" aria-pressed="true">mm</button><button data-v="in">in</button></div></div>
+      <canvas id="cbar" width="560" height="24"></canvas>
+      <div class="cbticks" id="cbticks"></div>
+    </div>
+    <div class="group">
+      <label for="palSel">Color scale</label>
+      <select id="palSel">
+        <option value="nrl">NRL-style</option>
+        <option value="hud">Ice core</option>
+      </select>
+    </div>
+    <div class="group">
+      <span class="lbl">Loop length</span>
+      <div class="seg" id="spanSeg"><button data-v="12">12 h</button><button data-v="24" aria-pressed="true">24 h</button><button data-v="48">48 h</button></div>
+      <div class="row"><label for="speed">Speed</label><span id="speedv">6 fps</span></div>
+      <input type="range" id="speed" min="1" max="15" value="6">
+      <div class="seg" id="modeSeg"><button data-v="loop" aria-pressed="true">Loop</button><button data-v="rock">Rock</button></div>
+    </div>
+    <div class="toggles">
+      <label class="tg"><input type="checkbox" id="tCoast" checked>Coastlines</label>
+      <label class="tg"><input type="checkbox" id="tGrid" checked>Lat/lon</label>
+      <label class="tg"><input type="checkbox" id="tMarks" checked>Markers</label>
+      <label class="tg"><input type="checkbox" id="tSmooth" checked>Smoothing</label>
+    </div>
+    <div class="kbd">Space plays or pauses. Arrow keys step. Hover the map for values.</div>
+    <div class="foot" id="foot">TPW: <a href="https://tropic.ssec.wisc.edu/real-time/mtpw2/" target="_blank" rel="noopener">MIMIC-TPW2, UW-CIMSS</a>. Overlays: NOAA RAP 13 km analysis.</div>
+  </aside>
+</div>
+
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+
+// ------------------------------------------------------------ palettes (value in mm, color)
+const PAL = {
+  nrl: [[0,"#2A1606"],[8,"#6B3F14"],[16,"#A8702B"],[24,"#D9A441"],[30,"#E8E05A"],[35,"#8BD35A"],[40,"#2FB37A"],
+        [45,"#1FA3C9"],[50,"#2B6FE0"],[55,"#5B3EE0"],[60,"#9B2FD6"],[65,"#D62F9E"],[70,"#FF4D6D"],[76,"#FFD0DC"]],
+  hud: [[0,"#07111E"],[12,"#0D2A47"],[24,"#11506E"],[34,"#138A94"],[42,"#27C2B4"],[50,"#8BF0D0"],[56,"#E6FFB0"],
+        [62,"#FFD23F"],[68,"#FF8A5B"],[73,"#FF4F8B"],[76,"#FFFFFF"]],
+};
+const DIFF = [[-15,"#C4661A"],[-8,"#F0A447"],[-3,"#FFE2B0"],[0,"#0E2A40"],[3,"#BFEFFF"],[8,"#4FA6F0"],[15,"#2D4FD1"]];
+const DMAX = 15;
+
+const hex = h => [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+function interp(stops, v){
+  if (v <= stops[0][0]) return hex(stops[0][1]);
+  for (let i=1;i<stops.length;i++){
+    if (v <= stops[i][0]){
+      const [a,ca]=stops[i-1],[b,cb]=stops[i]; const t=(v-a)/(b-a);
+      const A=hex(ca),B=hex(cb); return A.map((x,k)=>Math.round(x+(B[k]-x)*t));
+    }
+  }
+  return hex(stops[stops.length-1][1]);
+}
+
+// ------------------------------------------------------------ state
+const S = {
+  man:null, all:[], vis:[], i:0, playing:true, fps:6, dir:1, mode:"loop",
+  base:"tpw", pal:"nrl", units:"mm", ovl:"none", opac:1, span:24,
+  coast:true, grid:true, marks:true, smooth:true,
+};
+const grids = new Map();         // "tpw/2026093018" -> Uint8Array | null
+const imgs = new Map();          // "mflux925/2026093018" -> HTMLImageElement
+let LUT = null, DLUT = null, off, offx, lastTick = 0, dwellUntil = 0;
+
+function readHash(){
+  const h = new URLSearchParams(location.hash.slice(1));
+  for (const k of ["base","pal","units","ovl","mode"]) if (h.get(k)) S[k]=h.get(k);
+  if (h.get("span")) S.span=+h.get("span");
+  if (h.get("op")) S.opac=Math.min(1,Math.max(.1,+h.get("op")));
+}
+function writeHash(){
+  const h = new URLSearchParams({base:S.base,pal:S.pal,units:S.units,ovl:S.ovl,span:S.span,op:S.opac.toFixed(2),mode:S.mode});
+  history.replaceState(null,"","#"+h.toString());
+}
+
+// ------------------------------------------------------------ LUTs
+function buildLUT(){
+  const sc = S.man.scale; LUT = new Uint8ClampedArray(256*4);
+  for (let c=0;c<255;c++){ const [r,g,b]=interp(PAL[S.pal], c/sc); LUT.set([r,g,b,255], c*4); }
+  DLUT = new Uint8ClampedArray(256*4);
+  for (let c=0;c<256;c++){ const v=(c/255)*2*DMAX-DMAX; const [r,g,b]=interp(DIFF,v); DLUT.set([r,g,b,255],c*4); }
+}
+
+// ------------------------------------------------------------ data loading
+async function getGrid(kind, key){
+  const id = kind+"/"+key;
+  if (grids.has(id)) return grids.get(id);
+  grids.set(id, undefined);
+  try {
+    const r = await fetch(`data/${kind}/${key}.bin`, {cache:"no-cache"});
+    const v = r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+    grids.set(id, v && v.length === S.man.nx*S.man.ny ? v : null);
+  } catch { grids.set(id, null); }
+  return grids.get(id);
+}
+function getImg(oid, key){
+  const id = oid+"/"+key;
+  if (!imgs.has(id)){ const im = new Image(); im.decoding="async"; im.src=`data/ovl/${oid}/${key}.png`; imgs.set(id, im); }
+  return imgs.get(id);
+}
+async function pool(tasks, n){
+  let k=0; const run = async () => { while (k < tasks.length) { const t = tasks[k++]; await t(); } };
+  await Promise.all(Array.from({length:n}, run));
+}
+async function syncFrames(){
+  const need = [];
+  for (const f of S.vis){
+    if (f.tpw) need.push(() => getGrid("tpw", f.key).then(progress));
+    if (f.rappw) need.push(() => getGrid("rappw", f.key).then(progress));
+  }
+  let done = 0; const total = need.length;
+  function progress(){ done++; $("loading").textContent = `Syncing frames ${done}/${total}`; if (done === 1) draw(); }
+  $("loading").style.display = total ? "grid" : "none";
+  await pool(need, 6);
+  $("loading").style.display = "none";
+  preloadOverlay();
+  draw();
+}
+function preloadOverlay(){
+  if (S.ovl === "none") return;
+  for (const f of S.vis) if (f.ovl.includes(S.ovl)) getImg(S.ovl, f.key);
+}
+
+// ------------------------------------------------------------ drawing
+function sizeCanvases(){
+  const st = $("stage"), r = st.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio||1, 2);
+  for (const c of [$("base"), $("grid")]){ c.width = Math.round(r.width*dpr); c.height = Math.round(r.height*dpr); }
+  drawGrid(); drawBase(); updateRefArrow();
+}
+function cur(){ return S.vis[S.i]; }
+
+function drawBase(){
+  const f = cur(), c = $("base"), ctx = c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+  if (!f) return;
+  const {nx,ny,missing} = S.man, sc = S.man.scale;
+  const a = grids.get("tpw/"+f.key), b = grids.get("rappw/"+f.key);
+  const img = offx.createImageData(nx, ny), d = img.data;
+  let have = false;
+  if (S.base === "diff"){
+    if (a && b){ have = true;
+      for (let i=0;i<nx*ny;i++){
+        if (a[i]===missing || b[i]===missing) continue;
+        const v = (a[i]-b[i])/sc; let k = Math.round((v+DMAX)/(2*DMAX)*255); k = k<0?0:k>255?255:k;
+        d[i*4]=DLUT[k*4]; d[i*4+1]=DLUT[k*4+1]; d[i*4+2]=DLUT[k*4+2]; d[i*4+3]=255;
+      }}
+  } else {
+    const g = S.base === "rap" ? b : a;
+    if (g){ have = true;
+      for (let i=0;i<nx*ny;i++){ const k=g[i]; if (k===missing) continue;
+        d[i*4]=LUT[k*4]; d[i*4+1]=LUT[k*4+1]; d[i*4+2]=LUT[k*4+2]; d[i*4+3]=255; }}
+  }
+  offx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = S.smooth; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(off, 0, 0, c.width, c.height);
+  const names = {tpw:"No MIMIC analysis for this hour.", rap:"No RAP analysis for this hour.", diff:"Difference needs both MIMIC and RAP for this hour."};
+  const pending = (S.base !== "rap" && a === undefined && f.tpw) || (S.base !== "tpw" && b === undefined && f.rappw);
+  notice(have || pending ? "" : names[S.base]);
+}
+
+function notice(msg){
+  const n = $("notice"); n.textContent = msg || ""; n.style.display = msg ? "block" : "none";
+}
+
+function drawOverlay(){
+  const el = $("ovl"), f = cur();
+  if (!f || S.ovl === "none" || !f.ovl.includes(S.ovl)){
+    el.style.visibility = "hidden";
+    if (f && S.ovl !== "none" && !f.ovl.includes(S.ovl) && !$("notice").textContent) notice("No model overlay for this hour yet.");
+    return;
+  }
+  const im = getImg(S.ovl, f.key);
+  if (el.src !== im.src) el.src = im.src;
+  el.style.opacity = S.opac; el.style.visibility = "visible";
+}
+
+function drawGrid(){
+  const c = $("grid"), ctx = c.getContext("2d"); ctx.clearRect(0,0,c.width,c.height);
+  if (!S.man || !S.grid) return;
+  const [W,E,Sb,N] = S.man.extent, px = x => (x-W)/(E-W)*c.width, py = y => (N-y)/(N-Sb)*c.height;
+  const dpr = c.width / $("stage").clientWidth;
+  ctx.strokeStyle = "rgba(143,239,255,.22)"; ctx.lineWidth = 1*dpr; ctx.setLineDash([4*dpr,6*dpr]);
+  ctx.fillStyle = "rgba(220,239,247,.75)"; ctx.font = `500 ${11*dpr}px "Chakra Petch", sans-serif`;
+  for (let lon = Math.ceil(W/5)*5; lon < E; lon += 5){
+    ctx.beginPath(); ctx.moveTo(px(lon),0); ctx.lineTo(px(lon),c.height); ctx.stroke();
+    ctx.fillText(`${Math.abs(lon)}°W`, px(lon)+4*dpr, c.height-8*dpr);
+  }
+  for (let lat = Math.ceil(Sb/5)*5; lat < N; lat += 5){
+    ctx.beginPath(); ctx.moveTo(0,py(lat)); ctx.lineTo(c.width,py(lat)); ctx.stroke();
+    ctx.fillText(`${lat}°N`, 8*dpr, py(lat)-4*dpr);
+  }
+}
+
+function drawMarks(){
+  const box = $("marks"); box.innerHTML = "";
+  if (!S.marks) return;
+  const [W,E,Sb,N] = S.man.extent;
+  for (const m of S.man.markers || []){
+    const d = document.createElement("div"); d.className = "marker";
+    d.style.left = ((m.lon-W)/(E-W)*100)+"%"; d.style.top = ((N-m.lat)/(N-Sb)*100)+"%";
+    const s = document.createElement("span"); s.textContent = m.name; d.appendChild(s); box.appendChild(d);
+  }
+}
+
+function fmtUTC(t){
+  const d = new Date(t), mon = d.toLocaleString("en-US",{month:"short",timeZone:"UTC"});
+  return `${String(d.getUTCHours()).padStart(2,"0")}00 UTC ${d.getUTCDate()} ${mon}`;
+}
+function fmtLocal(t){
+  return new Date(t).toLocaleString("en-US",{hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short",weekday:"short"});
+}
+
+function drawChrome(){
+  const f = cur(); if (!f) return;
+  $("clock").firstChild.nodeValue = fmtUTC(f.t);
+  $("local").textContent = fmtLocal(f.t);
+  $("frameinfo").textContent = `${S.i+1}/${S.vis.length}`;
+  const pct = S.vis.length > 1 ? S.i/(S.vis.length-1)*100 : 0;
+  $("head").style.left = pct+"%"; $("glow").style.width = pct+"%";
+  $("track").setAttribute("aria-valuenow", S.i+1); $("track").setAttribute("aria-valuetext", fmtUTC(f.t));
+}
+
+function draw(){ notice(""); drawBase(); drawOverlay(); drawChrome(); }
+
+// ------------------------------------------------------------ timeline
+function buildTicks(){
+  const t = $("ticks"); t.innerHTML = ""; const n = S.vis.length;
+  S.vis.forEach((f,i) => {
+    const pct = n>1 ? i/(n-1)*100 : 0, tk = document.createElement("div");
+    const hr = new Date(f.t).getUTCHours();
+    tk.className = "tk" + (f.tpw ? " tpw" : " miss") + (hr % 6 === 0 ? " major" : "");
+    tk.style.left = pct+"%"; t.appendChild(tk);
+    if (hr % 6 === 0 && (S.span < 48 || hr % 12 === 0)){
+      const l = document.createElement("div"); l.className = "lab"; l.style.left = pct+"%";
+      l.textContent = String(hr).padStart(2,"0")+"Z"; t.appendChild(l);
+    }
+  });
+  $("track").setAttribute("aria-valuemin",1); $("track").setAttribute("aria-valuemax",n);
+}
+function seekFromEvent(e){
+  const r = $("track").getBoundingClientRect(), x = Math.min(Math.max(e.clientX - r.left, 0), r.width);
+  S.i = Math.round(x/r.width*(S.vis.length-1)); draw();
+}
+
+// ------------------------------------------------------------ playback
+function step(d){
+  const n = S.vis.length; if (!n) return;
+  if (S.mode === "rock"){
+    let j = S.i + S.dir*d;
+    if (j >= n-1 || j <= 0){ S.dir *= -1; j = Math.min(Math.max(j,0),n-1); }
+    S.i = j;
+  } else S.i = (S.i + d + n) % n;
+  draw();
+}
+function tick(ts){
+  if (S.playing && S.vis.length > 1){
+    if (ts >= dwellUntil && ts - lastTick >= 1000/S.fps){
+      lastTick = ts; step(1);
+      if (S.mode === "loop" && S.i === S.vis.length-1) dwellUntil = ts + 1400;
+    }
+  }
+  requestAnimationFrame(tick);
+}
+function setPlaying(p){
+  S.playing = p;
+  $("playicon").innerHTML = p ? '<path d="M3 2h3.5v12H3zM9.5 2H13v12H9.5z"/>' : '<path d="M3 1.5v13L14 8z"/>';
+}
+
+// ------------------------------------------------------------ hover readout
+function readout(e){
+  const st = $("stage"), r = st.getBoundingClientRect(), ro = $("readout");
+  const x = e.clientX - r.left, y = e.clientY - r.top, f = cur();
+  if (!f || x<0 || y<0 || x>r.width || y>r.height){ ro.style.display="none"; return; }
+  const [W,E,Sb,N] = S.man.extent, lon = W + x/r.width*(E-W), lat = N - y/r.height*(N-Sb);
+  const ix = Math.floor((lon-W)/S.man.dx), iy = Math.floor((N-lat)/S.man.dx), k = iy*S.man.nx + ix;
+  const val = g => (g && g[k] !== S.man.missing) ? g[k]/S.man.scale : null;
+  const a = val(grids.get("tpw/"+f.key)), b = val(grids.get("rappw/"+f.key));
+  const u = v => v==null ? "n/a" : S.units==="in" ? (v/25.4).toFixed(2)+" in" : v.toFixed(1)+" mm";
+  const du = v => v==null ? "n/a" : (v>=0?"+":"") + (S.units==="in" ? (v/25.4).toFixed(2)+" in" : v.toFixed(1)+" mm");
+  const main = S.base==="rap" ? u(b) : S.base==="diff" ? du(a!=null&&b!=null ? a-b : null) : u(a);
+  ro.innerHTML = `<b>${main}</b>MIMIC ${u(a)}<br>RAP ${u(b)}<br><em>${lat.toFixed(2)}°N ${Math.abs(lon).toFixed(2)}°W</em>`;
+  ro.style.display = "block";
+  const w = ro.offsetWidth, h = ro.offsetHeight;
+  ro.style.left = (x + 16 + w > r.width ? x - w - 16 : x + 16) + "px";
+  ro.style.top = (y + 16 + h > r.height ? y - h - 16 : y + 16) + "px";
+}
+
+// ------------------------------------------------------------ legend
+function drawLegend(){
+  const c = $("cbar"), ctx = c.getContext("2d"), n = c.width, T = $("cbticks"); T.innerHTML = "";
+  const img = ctx.createImageData(n, c.height);
+  let lo, hi, stops, ticks;
+  if (S.base === "diff"){
+    lo = -DMAX; hi = DMAX; stops = DIFF;
+    ticks = S.units === "in" ? [-.5,-.25,0,.25,.5].map(v=>[v*25.4, (v>0?"+":"")+v]) : [-15,-10,-5,0,5,10,15].map(v=>[v,(v>0?"+":"")+v]);
+    $("cbtitle").textContent = "MIMIC minus RAP PW";
+  } else {
+    lo = 0; hi = 76; stops = PAL[S.pal];
+    ticks = S.units === "in" ? [0,.5,1,1.5,2,2.5,3].map(v=>[v*25.4, String(v)]) : [0,10,20,30,40,50,60,70].map(v=>[v,String(v)]);
+    $("cbtitle").textContent = S.base === "rap" ? "RAP precipitable water" : "Total precipitable water";
+  }
+  for (let x=0;x<n;x++){ const [r,g,b] = interp(stops, lo + (hi-lo)*x/(n-1));
+    for (let y=0;y<c.height;y++){ const o=(y*n+x)*4; img.data[o]=r; img.data[o+1]=g; img.data[o+2]=b; img.data[o+3]=255; } }
+  ctx.putImageData(img,0,0);
+  for (const [v,l] of ticks){ if (v<lo||v>hi) continue; const s=document.createElement("span");
+    s.style.left = ((v-lo)/(hi-lo)*100)+"%"; s.textContent = l; T.appendChild(s); }
+}
+
+function updateOverlayNote(){
+  const o = (S.man.overlays||[]).find(o => o.id === S.ovl);
+  $("ovlnote").textContent = o ? o.legend : "Pick a model field to lay over the satellite moisture.";
+  $("ovlSel").classList.toggle("hot", S.ovl !== "none");
+  const ra = $("refarrow");
+  if (o && o.ref){ ra.hidden = false; $("reftxt").textContent = `${o.ref.value} ${o.ref.units}`; updateRefArrow(); }
+  else ra.hidden = true;
+}
+function updateRefArrow(){
+  const o = S.man && (S.man.overlays||[]).find(o => o.id === S.ovl);
+  if (!o || !o.ref) return;
+  const [W,E] = S.man.extent, px = $("stage").clientWidth * o.ref.deg / (E-W);
+  $("refline").style.width = Math.round(px) + "px";
+}
+
+// ------------------------------------------------------------ controls
+function seg(id, key, onChange){
+  const el = $(id);
+  const sync = () => el.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(String(S[key]) === b.dataset.v)));
+  el.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
+    S[key] = key === "span" ? +b.dataset.v : b.dataset.v; sync(); onChange && onChange(); writeHash(); });
+  sync();
+}
+function setVisible(){
+  const keepKey = cur() && cur().key;
+  S.vis = S.all.slice(-S.span);
+  const j = S.vis.findIndex(f => f.key === keepKey);
+  S.i = j >= 0 ? j : S.vis.length - 1;
+  buildTicks();
+}
+
+function wire(){
+  seg("baseSeg","base",() => { drawLegend(); draw(); });
+  seg("unitSeg","units",() => drawLegend());
+  seg("spanSeg","span",() => { setVisible(); syncFrames(); });
+  seg("modeSeg","mode",() => { S.dir = 1; });
+
+  const sel = $("ovlSel"), groups = {};
+  for (const o of S.man.overlays || []){
+    if (!groups[o.group]){ groups[o.group] = document.createElement("optgroup"); groups[o.group].label = o.group; sel.appendChild(groups[o.group]); }
+    const op = document.createElement("option"); op.value = o.id; op.textContent = o.name; groups[o.group].appendChild(op);
+  }
+  if (![...sel.options].some(o => o.value === S.ovl)) S.ovl = "none";
+  sel.value = S.ovl;
+  sel.addEventListener("change", () => {
+    S.ovl = sel.value; const o = (S.man.overlays||[]).find(o => o.id === S.ovl);
+    if (o) S.opac = o.opacity ?? 1;
+    $("opac").value = Math.round(S.opac*100); $("opacv").textContent = $("opac").value + "%";
+    updateOverlayNote(); preloadOverlay(); draw(); writeHash();
+  });
+  $("opac").value = Math.round(S.opac*100); $("opacv").textContent = $("opac").value+"%";
+  $("opac").addEventListener("input", e => { S.opac = e.target.value/100; $("opacv").textContent = e.target.value+"%"; drawOverlay(); writeHash(); });
+
+  $("palSel").value = S.pal;
+  $("palSel").addEventListener("change", e => { S.pal = e.target.value; buildLUT(); drawLegend(); drawBase(); writeHash(); });
+  $("speed").addEventListener("input", e => { S.fps = +e.target.value; $("speedv").textContent = S.fps+" fps"; });
+
+  $("tCoast").addEventListener("change", e => { S.coast = e.target.checked; $("coast").style.display = S.coast ? "" : "none"; });
+  $("tGrid").addEventListener("change", e => { S.grid = e.target.checked; drawGrid(); });
+  $("tMarks").addEventListener("change", e => { S.marks = e.target.checked; drawMarks(); });
+  $("tSmooth").addEventListener("change", e => { S.smooth = e.target.checked; drawBase(); });
+
+  $("play").addEventListener("click", () => setPlaying(!S.playing));
+  $("prev").addEventListener("click", () => { setPlaying(false); step(-1); });
+  $("next").addEventListener("click", () => { setPlaying(false); step(1); });
+
+  const tr = $("track");
+  tr.addEventListener("pointerdown", e => { setPlaying(false); tr.setPointerCapture(e.pointerId); seekFromEvent(e);
+    const mv = ev => seekFromEvent(ev), up = () => { tr.removeEventListener("pointermove", mv); tr.removeEventListener("pointerup", up); };
+    tr.addEventListener("pointermove", mv); tr.addEventListener("pointerup", up); });
+
+  document.addEventListener("keydown", e => {
+    if (e.target instanceof Element && e.target.matches("select,input")) return;
+    if (e.code === "Space"){ e.preventDefault(); setPlaying(!S.playing); }
+    else if (e.key === "ArrowLeft"){ e.preventDefault(); setPlaying(false); step(-1); }
+    else if (e.key === "ArrowRight"){ e.preventDefault(); setPlaying(false); step(1); }
+    else if (e.key === "Home"){ S.i = 0; draw(); } else if (e.key === "End"){ S.i = S.vis.length-1; draw(); }
+  });
+
+  const st = $("stage");
+  st.addEventListener("pointermove", readout);
+  st.addEventListener("pointerleave", () => $("readout").style.display = "none");
+  new ResizeObserver(sizeCanvases).observe(st);
+}
+
+function freshness(){
+  const last = [...S.all].reverse().find(f => f.tpw);
+  const led = $("led"), txt = $("freshtxt");
+  if (!last){ led.className = "led old"; txt.textContent = "No MIMIC frames yet"; return; }
+  const hrs = (Date.now() - new Date(last.t).getTime())/3.6e6;
+  led.className = "led " + (hrs < 4 ? "ok" : hrs < 8 ? "stale" : "old");
+  txt.textContent = `Latest MIMIC ${fmtUTC(last.t)}, ${hrs < 1 ? "under an hour" : Math.round(hrs)+" h"} old`;
+}
+
+// ------------------------------------------------------------ boot
+async function boot(){
+  readHash();
+  let man;
+  try {
+    const r = await fetch("data/manifest.json?v="+Date.now(), {cache:"no-store"});
+    if (!r.ok) throw new Error("HTTP "+r.status);
+    man = await r.json();
+  } catch (err){
+    $("loading").textContent = "No manifest yet. Run the build workflow once, then reload.";
+    $("clock").firstChild.nodeValue = "Waiting for data"; return;
+  }
+  S.man = man; S.all = man.frames || [];
+  off = document.createElement("canvas"); off.width = man.nx; off.height = man.ny; offx = off.getContext("2d");
+  $("coast").src = "data/coast.png";
+  buildLUT(); wire(); setVisible(); drawMarks(); drawLegend(); updateOverlayNote(); freshness();
+  sizeCanvases(); setPlaying(true);
+  if (!S.all.length){ $("loading").textContent = "The manifest has no frames yet. The next build will add them."; return; }
+  await syncFrames();
+  const sw = $("sweep"); sw.classList.add("run"); sw.addEventListener("animationend", () => sw.classList.remove("run"), {once:true});
+  requestAnimationFrame(tick);
+  setInterval(async () => {                      // pick up new hours without a reload
+    try { const r = await fetch("data/manifest.json?v="+Date.now(), {cache:"no-store"}); const m = await r.json();
+      if (m.generated !== S.man.generated){
+        const atEnd = S.i === S.vis.length-1;
+        S.man = m; S.all = m.frames;
+        for (const f of S.all.slice(-6)){ grids.delete("tpw/"+f.key); grids.delete("rappw/"+f.key); }
+        for (const id of [...imgs.keys()]) if (S.all.slice(-2).some(f => id.endsWith("/"+f.key))) imgs.delete(id);
+        setVisible(); if (atEnd) S.i = S.vis.length-1; freshness(); syncFrames();
+      } } catch {}
+  }, 3*60*1000);
+}
+boot();
+})();
+</script>
+</body>
+</html>
