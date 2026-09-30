@@ -1,0 +1,61 @@
+name: build-loop
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"    # twice hourly: :37 catches the new MIMIC hour, :07 catches the RAP f00 that posts ~:50-:55
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-loop
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Restore current site from gh-pages
+        run: |
+          mkdir -p site
+          if git fetch --depth=1 origin gh-pages 2>/dev/null; then
+            git archive FETCH_HEAD | tar -x -C site
+            echo "restored $(find site -type f | wc -l) files"
+          else
+            echo "no gh-pages branch yet, starting fresh"
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: System libraries
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libeccodes-dev
+
+      - name: Python packages
+        run: pip install -r requirements.txt
+
+      - name: Cache Natural Earth shapes
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/cartopy
+          key: cartopy-ne-10m-v1
+
+      - name: Build frames
+        run: python -m pipeline.build --site site
+
+      - name: Publish
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
+          force_orphan: true        # single commit on gh-pages, no binary history bloat
+          commit_message: "loop update"
