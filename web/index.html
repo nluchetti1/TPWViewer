@@ -78,6 +78,8 @@ header{grid-column:1/-1;display:flex;align-items:flex-end;justify-content:space-
   display:inline-grid;place-items:center}
 .btn:hover{border-color:var(--ice)}
 .btn.play{min-width:52px;border-color:var(--ice);color:var(--ice)}
+.btn.export{border-color:var(--amber);color:var(--amber);white-space:nowrap;font-size:14px}
+.btn:disabled{opacity:.7;cursor:progress}
 .btn svg{width:16px;height:16px;fill:currentColor}
 .track{position:relative;flex:1;height:44px;cursor:pointer;touch-action:none}
 .track .rail{position:absolute;left:0;right:0;top:20px;height:4px;background:#12324C;border-radius:2px}
@@ -138,7 +140,7 @@ input[type=range]{width:100%;accent-color:var(--ice)}
 <div class="app">
   <header>
     <div class="title">
-      <h1>Southeast moisture loop</h1>
+      <h1 id="h1">Southeast moisture loop</h1>
       <div class="clock" id="clock">Loading<small id="local"></small></div>
     </div>
     <div class="fresh"><span class="led" id="led"></span><span id="freshtxt">Checking data</span></div>
@@ -169,6 +171,13 @@ input[type=range]{width:100%;accent-color:var(--ice)}
   </div>
 
   <aside>
+    <div class="group">
+      <span class="lbl">Domain</span>
+      <div class="seg" id="domSeg">
+        <button data-v="se" aria-pressed="true">Southeast</button>
+        <button data-v="fl">Florida</button>
+      </div>
+    </div>
     <div class="group">
       <span class="lbl">Shaded field</span>
       <div class="seg" id="baseSeg">
@@ -205,13 +214,25 @@ input[type=range]{width:100%;accent-color:var(--ice)}
       <input type="range" id="speed" min="1" max="15" value="6">
       <div class="seg" id="modeSeg"><button data-v="loop" aria-pressed="true">Loop</button><button data-v="rock">Rock</button></div>
     </div>
+    <div class="group">
+      <span class="lbl">Export</span>
+      <div class="row">
+        <select id="gifSize" aria-label="GIF width" style="flex:1">
+          <option value="900">900 px wide</option>
+          <option value="1200" selected>1200 px wide</option>
+          <option value="1500">1500 px wide</option>
+        </select>
+        <button class="btn export" id="gifBtn">Download GIF</button>
+      </div>
+      <div class="ovlnote" id="gifnote">Saves the current loop as you see it: domain, field, overlay, layers and speed.</div>
+    </div>
     <div class="toggles">
       <label class="tg"><input type="checkbox" id="tCoast" checked>Coastlines</label>
       <label class="tg"><input type="checkbox" id="tGrid" checked>Lat/lon</label>
       <label class="tg"><input type="checkbox" id="tMarks" checked>Markers</label>
       <label class="tg"><input type="checkbox" id="tSmooth" checked>Smoothing</label>
     </div>
-    <div class="kbd">Space plays or pauses. Arrow keys step. Hover the map for values.</div>
+    <div class="kbd">Space plays or pauses. Arrow keys step. Z switches domain. Hover the map for values.</div>
     <div class="foot" id="foot">TPW: <a href="https://tropic.ssec.wisc.edu/real-time/mtpw2/" target="_blank" rel="noopener">MIMIC-TPW2, UW-CIMSS</a>. Overlays: NOAA RAP 13 km analysis.</div>
   </aside>
 </div>
@@ -246,21 +267,39 @@ function interp(stops, v){
 // ------------------------------------------------------------ state
 const S = {
   man:null, all:[], vis:[], i:0, playing:true, fps:6, dir:1, mode:"loop",
-  base:"tpw", pal:"nrl", units:"mm", ovl:"none", opac:1, span:24,
+  dom:"se", base:"tpw", pal:"nrl", units:"mm", ovl:"none", opac:1, span:24,
   coast:true, grid:true, marks:true, smooth:true,
 };
 const grids = new Map();         // "tpw/2026093018" -> Uint8Array | null
 const imgs = new Map();          // "mflux925/2026093018" -> HTMLImageElement
 let LUT = null, DLUT = null, off, offx, lastTick = 0, dwellUntil = 0;
 
+// ------------------------------------------------------------ domains
+function domains(){
+  return (S.man && S.man.domains) ||
+    [{id:"se",name:"Southeast",extent:S.man.extent,dir:"ovl",coast:"coast.png",grid:5,ref_deg:1}];
+}
+function D(){ const ds = domains(); return ds.find(d => d.id === S.dom) || ds[0]; }
+function ovlList(f){
+  if (!f || !f.ovl) return [];
+  if (Array.isArray(f.ovl)) return S.dom === "se" ? f.ovl : [];   // manifests from before domains
+  return f.ovl[D().id] || [];
+}
+function applyDomain(){
+  const d = D();
+  $("h1").textContent = `${d.name} moisture loop`;
+  $("coast").src = "data/" + d.coast;
+  drawGrid(); drawMarks(); updateRefArrow(); preloadOverlay(); draw();
+}
+
 function readHash(){
   const h = new URLSearchParams(location.hash.slice(1));
-  for (const k of ["base","pal","units","ovl","mode"]) if (h.get(k)) S[k]=h.get(k);
+  for (const k of ["dom","base","pal","units","ovl","mode"]) if (h.get(k)) S[k]=h.get(k);
   if (h.get("span")) S.span=+h.get("span");
   if (h.get("op")) S.opac=Math.min(1,Math.max(.1,+h.get("op")));
 }
 function writeHash(){
-  const h = new URLSearchParams({base:S.base,pal:S.pal,units:S.units,ovl:S.ovl,span:S.span,op:S.opac.toFixed(2),mode:S.mode});
+  const h = new URLSearchParams({dom:S.dom,base:S.base,pal:S.pal,units:S.units,ovl:S.ovl,span:S.span,op:S.opac.toFixed(2),mode:S.mode});
   history.replaceState(null,"","#"+h.toString());
 }
 
@@ -285,8 +324,8 @@ async function getGrid(kind, key){
   return grids.get(id);
 }
 function getImg(oid, key){
-  const id = oid+"/"+key;
-  if (!imgs.has(id)){ const im = new Image(); im.decoding="async"; im.src=`data/ovl/${oid}/${key}.png`; imgs.set(id, im); }
+  const dir = D().dir, id = dir+"/"+oid+"/"+key;
+  if (!imgs.has(id)){ const im = new Image(); im.decoding="async"; im.src=`data/${dir}/${oid}/${key}.png`; imgs.set(id, im); }
   return imgs.get(id);
 }
 async function pool(tasks, n){
@@ -309,7 +348,7 @@ async function syncFrames(){
 }
 function preloadOverlay(){
   if (S.ovl === "none") return;
-  for (const f of S.vis) if (f.ovl.includes(S.ovl)) getImg(S.ovl, f.key);
+  for (const f of S.vis) if (ovlList(f).includes(S.ovl)) getImg(S.ovl, f.key);
 }
 
 // ------------------------------------------------------------ drawing
@@ -320,10 +359,8 @@ function sizeCanvases(){
 }
 function cur(){ return S.vis[S.i]; }
 
-function drawBase(){
-  const f = cur(), c = $("base"), ctx = c.getContext("2d");
-  ctx.clearRect(0,0,c.width,c.height);
-  if (!f) return;
+// Paint the shaded field for frame f into any 2D context, cropped to the current domain.
+function paintBase(ctx, w, h, f, smooth){
   const {nx,ny,missing} = S.man, sc = S.man.scale;
   const a = grids.get("tpw/"+f.key), b = grids.get("rappw/"+f.key);
   const img = offx.createImageData(nx, ny), d = img.data;
@@ -342,11 +379,20 @@ function drawBase(){
         d[i*4]=LUT[k*4]; d[i*4+1]=LUT[k*4+1]; d[i*4+2]=LUT[k*4+2]; d[i*4+3]=255; }}
   }
   offx.putImageData(img, 0, 0);
-  ctx.imageSmoothingEnabled = S.smooth; ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(off, 0, 0, c.width, c.height);
-  const names = {tpw:"No MIMIC analysis for this hour.", rap:"No RAP analysis for this hour.", diff:"Difference needs both MIMIC and RAP for this hour."};
+  ctx.imageSmoothingEnabled = smooth; ctx.imageSmoothingQuality = "high";
+  const [W,,,N] = S.man.extent, [dW,dE,dS,dN] = D().extent, dx = S.man.dx;
+  ctx.drawImage(off, (dW-W)/dx, (N-dN)/dx, (dE-dW)/dx, (dN-dS)/dx, 0, 0, w, h);
+  return {have, a, b};
+}
+const MISSING_TEXT = {tpw:"No MIMIC analysis for this hour.", rap:"No RAP analysis for this hour.", diff:"Difference needs both MIMIC and RAP for this hour."};
+
+function drawBase(){
+  const f = cur(), c = $("base"), ctx = c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+  if (!f) return;
+  const {have, a, b} = paintBase(ctx, c.width, c.height, f, S.smooth);
   const pending = (S.base !== "rap" && a === undefined && f.tpw) || (S.base !== "tpw" && b === undefined && f.rappw);
-  notice(have || pending ? "" : names[S.base]);
+  notice(have || pending ? "" : MISSING_TEXT[S.base]);
 }
 
 function notice(msg){
@@ -355,9 +401,9 @@ function notice(msg){
 
 function drawOverlay(){
   const el = $("ovl"), f = cur();
-  if (!f || S.ovl === "none" || !f.ovl.includes(S.ovl)){
+  if (!f || S.ovl === "none" || !ovlList(f).includes(S.ovl)){
     el.style.visibility = "hidden";
-    if (f && S.ovl !== "none" && !f.ovl.includes(S.ovl) && !$("notice").textContent) notice("No model overlay for this hour yet.");
+    if (f && S.ovl !== "none" && !ovlList(f).includes(S.ovl) && !$("notice").textContent) notice("No model overlay for this hour yet.");
     return;
   }
   const im = getImg(S.ovl, f.key);
@@ -368,25 +414,43 @@ function drawOverlay(){
 function drawGrid(){
   const c = $("grid"), ctx = c.getContext("2d"); ctx.clearRect(0,0,c.width,c.height);
   if (!S.man || !S.grid) return;
-  const [W,E,Sb,N] = S.man.extent, px = x => (x-W)/(E-W)*c.width, py = y => (N-y)/(N-Sb)*c.height;
-  const dpr = c.width / $("stage").clientWidth;
-  ctx.strokeStyle = "rgba(143,239,255,.22)"; ctx.lineWidth = 1*dpr; ctx.setLineDash([4*dpr,6*dpr]);
-  ctx.fillStyle = "rgba(220,239,247,.75)"; ctx.font = `500 ${11*dpr}px "Chakra Petch", sans-serif`;
-  for (let lon = Math.ceil(W/5)*5; lon < E; lon += 5){
-    ctx.beginPath(); ctx.moveTo(px(lon),0); ctx.lineTo(px(lon),c.height); ctx.stroke();
-    ctx.fillText(`${Math.abs(lon)}°W`, px(lon)+4*dpr, c.height-8*dpr);
+  paintGrid(ctx, c.width, c.height, c.width / $("stage").clientWidth);
+}
+function paintGrid(ctx, w, h, k){
+  const [W,E,Sb,N] = D().extent, step = D().grid || 5, px = x => (x-W)/(E-W)*w, py = y => (N-y)/(N-Sb)*h;
+  ctx.save();
+  ctx.strokeStyle = "rgba(143,239,255,.22)"; ctx.lineWidth = 1*k; ctx.setLineDash([4*k,6*k]);
+  ctx.fillStyle = "rgba(220,239,247,.75)"; ctx.font = `500 ${11*k}px "Chakra Petch", sans-serif`;
+  for (let lon = Math.ceil(W/step)*step; lon < E; lon += step){
+    ctx.beginPath(); ctx.moveTo(px(lon),0); ctx.lineTo(px(lon),h); ctx.stroke();
+    ctx.fillText(`${Math.abs(lon)}°W`, px(lon)+4*k, h-8*k);
   }
-  for (let lat = Math.ceil(Sb/5)*5; lat < N; lat += 5){
-    ctx.beginPath(); ctx.moveTo(0,py(lat)); ctx.lineTo(c.width,py(lat)); ctx.stroke();
-    ctx.fillText(`${lat}°N`, 8*dpr, py(lat)-4*dpr);
+  for (let lat = Math.ceil(Sb/step)*step; lat < N; lat += step){
+    ctx.beginPath(); ctx.moveTo(0,py(lat)); ctx.lineTo(w,py(lat)); ctx.stroke();
+    ctx.fillText(`${lat}°N`, 8*k, py(lat)-4*k);
   }
+  ctx.restore();
+}
+function paintMarks(ctx, w, h, k){
+  const [W,E,Sb,N] = D().extent;
+  ctx.save(); ctx.font = `500 ${12*k}px "Chakra Petch", sans-serif`;
+  for (const m of S.man.markers || []){
+    if (m.lon < W || m.lon > E || m.lat < Sb || m.lat > N) continue;
+    const x = (m.lon-W)/(E-W)*w, y = (N-m.lat)/(N-Sb)*h, r = 6*k;
+    ctx.strokeStyle = "#FFB547"; ctx.lineWidth = 2*k;
+    ctx.beginPath(); ctx.moveTo(x, y-r); ctx.lineTo(x+r, y); ctx.lineTo(x, y+r); ctx.lineTo(x-r, y); ctx.closePath(); ctx.stroke();
+    ctx.lineWidth = 4*k; ctx.strokeStyle = "rgba(6,26,43,.85)"; ctx.strokeText(m.name, x+12*k, y+4*k);
+    ctx.fillStyle = "#FFB547"; ctx.fillText(m.name, x+12*k, y+4*k);
+  }
+  ctx.restore();
 }
 
 function drawMarks(){
   const box = $("marks"); box.innerHTML = "";
   if (!S.marks) return;
-  const [W,E,Sb,N] = S.man.extent;
+  const [W,E,Sb,N] = D().extent;
   for (const m of S.man.markers || []){
+    if (m.lon < W || m.lon > E || m.lat < Sb || m.lat > N) continue;
     const d = document.createElement("div"); d.className = "marker";
     d.style.left = ((m.lon-W)/(E-W)*100)+"%"; d.style.top = ((N-m.lat)/(N-Sb)*100)+"%";
     const s = document.createElement("span"); s.textContent = m.name; d.appendChild(s); box.appendChild(d);
@@ -462,8 +526,9 @@ function readout(e){
   const st = $("stage"), r = st.getBoundingClientRect(), ro = $("readout");
   const x = e.clientX - r.left, y = e.clientY - r.top, f = cur();
   if (!f || x<0 || y<0 || x>r.width || y>r.height){ ro.style.display="none"; return; }
-  const [W,E,Sb,N] = S.man.extent, lon = W + x/r.width*(E-W), lat = N - y/r.height*(N-Sb);
-  const ix = Math.floor((lon-W)/S.man.dx), iy = Math.floor((N-lat)/S.man.dx), k = iy*S.man.nx + ix;
+  const [W,E,Sb,N] = D().extent, lon = W + x/r.width*(E-W), lat = N - y/r.height*(N-Sb);
+  const [gW,,,gN] = S.man.extent;
+  const ix = Math.floor((lon-gW)/S.man.dx), iy = Math.floor((gN-lat)/S.man.dx), k = iy*S.man.nx + ix;
   const val = g => (g && g[k] !== S.man.missing) ? g[k]/S.man.scale : null;
   const a = val(grids.get("tpw/"+f.key)), b = val(grids.get("rappw/"+f.key));
   const u = v => v==null ? "n/a" : S.units==="in" ? (v/25.4).toFixed(2)+" in" : v.toFixed(1)+" mm";
@@ -477,24 +542,105 @@ function readout(e){
 }
 
 // ------------------------------------------------------------ legend
+function legendSpec(){
+  if (S.base === "diff") return {lo:-DMAX, hi:DMAX, stops:DIFF, title:"MIMIC minus RAP PW",
+    ticks: S.units === "in" ? [-.5,-.25,0,.25,.5].map(v=>[v*25.4, (v>0?"+":"")+v]) : [-15,-10,-5,0,5,10,15].map(v=>[v,(v>0?"+":"")+v])};
+  return {lo:0, hi:76, stops:PAL[S.pal], title: S.base === "rap" ? "RAP precipitable water" : "Total precipitable water",
+    ticks: S.units === "in" ? [0,.5,1,1.5,2,2.5,3].map(v=>[v*25.4, String(v)]) : [0,10,20,30,40,50,60,70].map(v=>[v,String(v)])};
+}
 function drawLegend(){
   const c = $("cbar"), ctx = c.getContext("2d"), n = c.width, T = $("cbticks"); T.innerHTML = "";
+  const {lo, hi, stops, ticks, title} = legendSpec();
+  $("cbtitle").textContent = title;
   const img = ctx.createImageData(n, c.height);
-  let lo, hi, stops, ticks;
-  if (S.base === "diff"){
-    lo = -DMAX; hi = DMAX; stops = DIFF;
-    ticks = S.units === "in" ? [-.5,-.25,0,.25,.5].map(v=>[v*25.4, (v>0?"+":"")+v]) : [-15,-10,-5,0,5,10,15].map(v=>[v,(v>0?"+":"")+v]);
-    $("cbtitle").textContent = "MIMIC minus RAP PW";
-  } else {
-    lo = 0; hi = 76; stops = PAL[S.pal];
-    ticks = S.units === "in" ? [0,.5,1,1.5,2,2.5,3].map(v=>[v*25.4, String(v)]) : [0,10,20,30,40,50,60,70].map(v=>[v,String(v)]);
-    $("cbtitle").textContent = S.base === "rap" ? "RAP precipitable water" : "Total precipitable water";
-  }
   for (let x=0;x<n;x++){ const [r,g,b] = interp(stops, lo + (hi-lo)*x/(n-1));
     for (let y=0;y<c.height;y++){ const o=(y*n+x)*4; img.data[o]=r; img.data[o+1]=g; img.data[o+2]=b; img.data[o+3]=255; } }
   ctx.putImageData(img,0,0);
   for (const [v,l] of ticks){ if (v<lo||v>hi) continue; const s=document.createElement("span");
     s.style.left = ((v-lo)/(hi-lo)*100)+"%"; s.textContent = l; T.appendChild(s); }
+}
+
+// ------------------------------------------------------------ animated GIF export
+let gifBusy = false;
+function loadScript(src){
+  return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("could not load "+src)); document.head.appendChild(s); });
+}
+function loadImage(src){
+  return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+}
+function paintFooter(ctx, w, y0, fh, k, f){
+  ctx.fillStyle = "#061A2B"; ctx.fillRect(0, y0, w, fh);
+  ctx.fillStyle = "#1F4A66"; ctx.fillRect(0, y0, w, Math.max(1, k));
+  const pad = 14*k;
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#8FEFFF"; ctx.font = `600 ${22*k}px "Chakra Petch", sans-serif`;
+  ctx.fillText(fmtUTC(f.t), pad, y0 + 30*k);
+  const tw = ctx.measureText(fmtUTC(f.t)).width;
+  ctx.fillStyle = "#7FA3B8"; ctx.font = `500 ${13*k}px "Chakra Petch", sans-serif`;
+  ctx.fillText(fmtLocal(f.t), pad + tw + 12*k, y0 + 30*k);
+  const o = (S.man.overlays||[]).find(o => o.id === S.ovl);
+  const field = {tpw:"MIMIC-TPW2 total precipitable water", rap:"RAP precipitable water", diff:"MIMIC minus RAP precipitable water"}[S.base];
+  ctx.font = `500 ${13*k}px "Barlow", sans-serif`; ctx.fillStyle = "#DCEFF7";
+  ctx.fillText(`${D().name}: ${field}${o ? " with RAP " + o.name : ""}`, pad, y0 + 50*k);
+  // colorbar
+  const {lo, hi, stops, ticks} = legendSpec(), bw = Math.round(w*0.3), bx = w - pad - bw, by = y0 + 14*k, bh = Math.round(12*k);
+  for (let x=0;x<bw;x++){ const [r,g,b] = interp(stops, lo + (hi-lo)*x/(bw-1)); ctx.fillStyle = `rgb(${r},${g},${b})`; ctx.fillRect(bx+x, by, 1, bh); }
+  ctx.fillStyle = "#7FA3B8"; ctx.font = `500 ${11*k}px "Chakra Petch", sans-serif`; ctx.textAlign = "center";
+  for (const [v,l] of ticks){ if (v<lo||v>hi) continue; ctx.fillText(l, bx + (v-lo)/(hi-lo)*bw, by + bh + 13*k); }
+  ctx.textAlign = "right"; ctx.font = `500 ${10*k}px "Barlow", sans-serif`;
+  ctx.fillText(`${S.units}  |  Data: UW-CIMSS MIMIC-TPW2, NOAA RAP`, w - pad, y0 + fh - 6*k);
+  ctx.textAlign = "left";
+}
+async function exportGif(){
+  if (gifBusy || !S.vis.length) return;
+  gifBusy = true;
+  const btn = $("gifBtn"), note = $("gifnote"), wasPlaying = S.playing;
+  setPlaying(false); btn.disabled = true;
+  try {
+    if (!window.GIFENC){ btn.textContent = "Loading encoder"; await loadScript("gifenc.js"); }
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    const w = +$("gifSize").value, h = Math.round(w*2/3), k = w/1200, fh = Math.round(64*k), H = h + fh;
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = H;
+    const ctx = cv.getContext("2d", {willReadFrequently:true});
+    const frames = S.vis.slice();
+    await Promise.all(frames.flatMap(f => [f.tpw && getGrid("tpw", f.key), f.rappw && getGrid("rappw", f.key)]));
+    const coast = S.coast ? await loadImage("data/" + D().coast) : null;
+    const enc = GIFENC.GIFEncoder(), delay = Math.round(1000/S.fps);
+    for (let i=0;i<frames.length;i++){
+      const f = frames[i];
+      btn.textContent = `Encoding ${i+1}/${frames.length}`;
+      ctx.fillStyle = "#0B1F33"; ctx.fillRect(0, 0, w, H);
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
+      const {have} = paintBase(ctx, w, h, f, S.smooth);
+      if (S.ovl !== "none" && ovlList(f).includes(S.ovl)){
+        const im = await loadImage(getImg(S.ovl, f.key).src);
+        if (im){ ctx.globalAlpha = S.opac; ctx.drawImage(im, 0, 0, w, h); ctx.globalAlpha = 1; }
+      }
+      if (coast) ctx.drawImage(coast, 0, 0, w, h);
+      if (S.grid) paintGrid(ctx, w, h, k);
+      if (S.marks) paintMarks(ctx, w, h, k);
+      if (!have){ ctx.fillStyle = "#FFB547"; ctx.font = `500 ${14*k}px "Barlow", sans-serif`; ctx.fillText(MISSING_TEXT[S.base], 16*k, h - 28*k); }
+      ctx.restore();
+      paintFooter(ctx, w, h, fh, k, f);
+      const px = ctx.getImageData(0, 0, w, H).data;
+      const data = new Uint8Array(px.buffer, px.byteOffset, px.byteLength);   // zero-copy view
+      const palette = GIFENC.quantize(data, 256);
+      enc.writeFrame(GIFENC.applyPalette(data, palette), w, H, {palette, delay: i === frames.length-1 ? 1500 : delay});
+      await new Promise(r => setTimeout(r, 0));           // keep the page responsive
+    }
+    enc.finish();
+    const blob = new Blob([enc.bytes()], {type:"image/gif"});
+    const a = document.createElement("a"), last = frames[frames.length-1];
+    a.href = URL.createObjectURL(blob);
+    a.download = `tpw_${D().id}_${S.base}${S.ovl !== "none" ? "_"+S.ovl : ""}_${last.key}Z.gif`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    note.textContent = `Saved ${frames.length} frames, ${(blob.size/1048576).toFixed(1)} MB.`;
+  } catch (err){
+    note.textContent = "GIF export failed: " + err.message;
+  } finally {
+    btn.textContent = "Download GIF"; btn.disabled = false; gifBusy = false; setPlaying(wasPlaying);
+  }
 }
 
 function updateOverlayNote(){
@@ -508,7 +654,7 @@ function updateOverlayNote(){
 function updateRefArrow(){
   const o = S.man && (S.man.overlays||[]).find(o => o.id === S.ovl);
   if (!o || !o.ref) return;
-  const [W,E] = S.man.extent, px = $("stage").clientWidth * o.ref.deg / (E-W);
+  const [W,E] = D().extent, px = $("stage").clientWidth * (D().ref_deg || 1) / (E-W);
   $("refline").style.width = Math.round(px) + "px";
 }
 
@@ -529,6 +675,8 @@ function setVisible(){
 }
 
 function wire(){
+  if (!domains().some(d => d.id === S.dom)) S.dom = domains()[0].id;
+  seg("domSeg","dom",() => applyDomain());
   seg("baseSeg","base",() => { drawLegend(); draw(); });
   seg("unitSeg","units",() => drawLegend());
   seg("spanSeg","span",() => { setVisible(); syncFrames(); });
@@ -560,6 +708,7 @@ function wire(){
   $("tSmooth").addEventListener("change", e => { S.smooth = e.target.checked; drawBase(); });
 
   $("play").addEventListener("click", () => setPlaying(!S.playing));
+  $("gifBtn").addEventListener("click", exportGif);
   $("prev").addEventListener("click", () => { setPlaying(false); step(-1); });
   $("next").addEventListener("click", () => { setPlaying(false); step(1); });
 
@@ -573,6 +722,9 @@ function wire(){
     if (e.code === "Space"){ e.preventDefault(); setPlaying(!S.playing); }
     else if (e.key === "ArrowLeft"){ e.preventDefault(); setPlaying(false); step(-1); }
     else if (e.key === "ArrowRight"){ e.preventDefault(); setPlaying(false); step(1); }
+    else if (e.key === "z" || e.key === "Z"){ const ds = domains(), j = ds.findIndex(d => d.id === S.dom);
+      S.dom = ds[(j+1) % ds.length].id; $("domSeg").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === S.dom)));
+      applyDomain(); writeHash(); }
     else if (e.key === "Home"){ S.i = 0; draw(); } else if (e.key === "End"){ S.i = S.vis.length-1; draw(); }
   });
 
@@ -605,8 +757,8 @@ async function boot(){
   }
   S.man = man; S.all = man.frames || [];
   off = document.createElement("canvas"); off.width = man.nx; off.height = man.ny; offx = off.getContext("2d");
-  $("coast").src = "data/coast.png";
-  buildLUT(); wire(); setVisible(); drawMarks(); drawLegend(); updateOverlayNote(); freshness();
+  buildLUT(); wire(); setVisible(); drawLegend(); updateOverlayNote(); freshness();
+  $("h1").textContent = `${D().name} moisture loop`; $("coast").src = "data/" + D().coast; drawMarks();
   sizeCanvases(); setPlaying(true);
   if (!S.all.length){ $("loading").textContent = "The manifest has no frames yet. The next build will add them."; return; }
   await syncFrames();

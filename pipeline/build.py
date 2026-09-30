@@ -59,12 +59,15 @@ def prune(site, keep_keys):
             for fn in os.listdir(d):
                 if fn.split(".")[0] not in keep_keys:
                     os.remove(os.path.join(d, fn))
-    ovl = os.path.join(site, "data", "ovl")
-    if os.path.isdir(ovl):
-        for oid in os.listdir(ovl):
-            d = os.path.join(ovl, oid)
-            if oid not in {o["id"] for o in render.OVERLAYS}:
-                shutil.rmtree(d)
+    ids = {o["id"] for o in render.OVERLAYS}
+    for dom in C.DOMAINS:
+        root = os.path.join(site, "data", dom["dir"])
+        if not os.path.isdir(root):
+            continue
+        for oid in os.listdir(root):
+            d = os.path.join(root, oid)
+            if oid not in ids or not os.path.isdir(d):
+                shutil.rmtree(d, ignore_errors=True)
                 continue
             for fn in os.listdir(d):
                 if fn.split(".")[0] not in keep_keys:
@@ -105,13 +108,14 @@ def main():
         except Exception as exc:  # noqa: BLE001
             log.warning("MIMIC %s failed: %s", C.key(t), exc)
 
-    # ---- RAP analyses + overlays
+    # ---- RAP analyses + overlays (only the domain/overlay pairs still missing)
     n_rap = 0
     for t in sorted(times, reverse=True):
         k = C.key(t)
         pw_path = os.path.join(data, "rappw", f"{k}.bin")
-        have = all(os.path.exists(os.path.join(data, "ovl", o["id"], f"{k}.png")) for o in render.OVERLAYS)
-        if have and os.path.exists(pw_path):
+        todo = [(d, o["id"]) for d in C.DOMAINS for o in render.OVERLAYS
+                if not os.path.exists(render.overlay_path(site, d, o["id"], k))]
+        if not todo and os.path.exists(pw_path):
             continue
         if n_rap >= args.max_rap:
             break
@@ -127,16 +131,17 @@ def main():
             continue
         if f.get("pw") is not None:
             write_bin(pw_path, f["pw"])
-        done = render.render_all(f, k, site)
-        log.info("RAP %s: %d overlays", k, len(done))
+        done = render.render_all(f, k, site, todo)
+        log.info("RAP %s: %d/%d overlays", k, len(done), len(todo))
 
     # ---- static layers
-    coast = os.path.join(data, "coast.png")
-    if not os.path.exists(coast):
-        try:
-            render.draw_coast(coast)
-        except Exception as exc:  # noqa: BLE001
-            log.error("coastline layer failed: %s", exc)
+    for dom in C.DOMAINS:
+        coast = os.path.join(data, dom["coast"])
+        if not os.path.exists(coast):
+            try:
+                render.draw_coast(dom, coast)
+            except Exception as exc:  # noqa: BLE001
+                log.error("coastline layer %s failed: %s", dom["id"], exc)
 
     # ---- prune + manifest
     prune(site, keys)
@@ -145,9 +150,10 @@ def main():
         k = C.key(t)
         tpw = os.path.exists(os.path.join(data, "tpw", f"{k}.bin"))
         rpw = os.path.exists(os.path.join(data, "rappw", f"{k}.bin"))
-        ovl = [o["id"] for o in render.OVERLAYS
-               if os.path.exists(os.path.join(data, "ovl", o["id"], f"{k}.png"))]
-        if tpw or rpw or ovl:
+        ovl = {d["id"]: [o["id"] for o in render.OVERLAYS
+                         if os.path.exists(render.overlay_path(site, d, o["id"], k))]
+               for d in C.DOMAINS}
+        if tpw or rpw or any(ovl.values()):
             frames.append({"t": t.strftime("%Y-%m-%dT%H:%MZ"), "key": k,
                            "tpw": tpw, "rappw": rpw, "ovl": ovl})
 
@@ -158,6 +164,8 @@ def main():
         "scale": C.SCALE, "missing": C.MISSING,
         "img": [C.IMG_W, C.IMG_H],
         "markers": C.MARKERS,
+        "domains": [{k2: d[k2] for k2 in ("id", "name", "extent", "dir", "coast", "grid", "ref_deg")}
+                    for d in C.DOMAINS],
         "overlays": render.OVERLAYS,
         "frames": frames,
     }

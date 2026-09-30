@@ -44,6 +44,19 @@ USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) mimic-se-loop/1.0 (+github actions
 RAP_LEVELS = [925, 900, 875, 850, 825, 800, 775, 750, 725, 700, 500]
 MFC_LAYER = (925, 700)   # layer-integrated moisture flux convergence
 
+# Display domains. Base fields (MIMIC, RAP PW) are always stored on the Southeast 0.1° grid
+# and cropped in the browser; overlays are rendered separately per domain so vector spacing,
+# barb density and line detail suit the zoom. Keep every extent at a 3:2 lon:lat ratio so
+# the frame stays equirectangular at IMG_W x IMG_H.
+DOMAINS = [
+    {"id": "se", "name": "Southeast", "extent": [W, E, S, N], "dir": "ovl", "coast": "coast.png",
+     "grid": 5, "vec_step": 10, "barb_step": 15, "stream_density": 1.4, "ref_deg": 1.0,
+     "counties": False},
+    {"id": "fl", "name": "Florida", "extent": [-88.5, -76.5, 23.5, 31.5], "dir": "ovl_fl",
+     "coast": "coast_fl.png", "grid": 2, "vec_step": 4, "barb_step": 6, "stream_density": 1.7,
+     "ref_deg": 0.4, "counties": True},
+]
+
 # Map markers drawn by the web page (also written to the manifest).
 MARKERS = [
     {"name": "Cape Canaveral", "lat": 28.49, "lon": -80.58},
