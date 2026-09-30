@@ -1,4 +1,4 @@
-"""RAP 13-km analysis (f00) access and derived fields on the target lat/lon grid.
+"""RAP 13-km analysis (f00) and HRRR forecast access, plus derived fields on the target grid.
 
 Source A (default): AWS Open Data bucket noaa-rap-pds, byte-range reads driven by the .idx.
 Source B: NOMADS grib filter (filter_rap.pl) with a subregion.
@@ -31,10 +31,10 @@ def _file_name(t):
     return f"rap.t{t:%H}z.awp130pgrbf00.grib2"
 
 
-def _wanted(var, lev):
+def _wanted(var, lev, levels):
     if var in ISO_VARS:
         m = re.fullmatch(r"(\d+) mb", lev)
-        return bool(m) and int(m.group(1)) in C.RAP_LEVELS
+        return bool(m) and int(m.group(1)) in levels
     if var == "PWAT":
         return lev.startswith("entire atmosphere")
     if var == "CAPE":
@@ -43,7 +43,31 @@ def _wanted(var, lev):
 
 
 def _fetch_aws(session, t):
-    base = f"{C.RAP_AWS}/rap.{t:%Y%m%d}/{_file_name(t)}"
+    return fetch_idx_records(session, f"{C.RAP_AWS}/rap.{t:%Y%m%d}/{_file_name(t)}", C.RAP_LEVELS)
+
+
+def hrrr_url(cycle, fh):
+    return f"{C.HRRR_AWS}/hrrr.{cycle:%Y%m%d}/conus/hrrr.t{cycle:%H}z.wrfprsf{fh:02d}.grib2"
+
+
+def hrrr_available(session, cycle, fh):
+    try:
+        r = session.head(hrrr_url(cycle, fh) + ".idx", timeout=30)
+        return r.status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def fetch_hrrr(session, cycle, fh):
+    try:
+        return fetch_idx_records(session, hrrr_url(cycle, fh), C.HRRR_LEVELS)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("HRRR %s f%02d fetch failed: %s", C.key(cycle), fh, exc)
+        return None
+
+
+def fetch_idx_records(session, base, levels):
+    """Byte-range the wanted records out of a GRIB2 file using its wgrib2-style .idx."""
     r = session.get(base + ".idx", timeout=60)
     if r.status_code in (403, 404):
         return None
@@ -51,7 +75,7 @@ def _fetch_aws(session, t):
     lines = [ln.split(":") for ln in r.text.strip().splitlines()]
     ranges = []
     for i, parts in enumerate(lines):
-        if len(parts) < 5 or not _wanted(parts[3], parts[4]):
+        if len(parts) < 5 or not _wanted(parts[3], parts[4], levels):
             continue
         start = int(parts[1])
         end = int(lines[i + 1][1]) - 1 if i + 1 < len(lines) else None
@@ -169,35 +193,42 @@ def _rotate(u, v, lon2d, attrs):
     return ca * u + sa * v, -sa * u + ca * v
 
 
-def decode(grib_bytes):
-    """Decode RAP GRIB2 bytes into regridded base fields on the target grid."""
+def decode(grib_bytes, stride=1):
+    """Decode RAP/HRRR GRIB2 bytes into regridded base fields on the target grid.
+
+    stride > 1 thins the native grid first (HRRR 3 km -> ~9 km) to keep triangulation cheap.
+    """
+    sl = (slice(None, None, stride), slice(None, None, stride))
     with tempfile.NamedTemporaryFile(suffix=".grib2", delete=False) as tmp:
         tmp.write(grib_bytes)
         path = tmp.name
     try:
         iso = _open(path, typeOfLevel="isobaricInhPa").load()
-        lat2d = iso["latitude"].values
-        lon2d = iso["longitude"].values
+        lat2d = iso["latitude"].values[sl]
+        lon2d = iso["longitude"].values[sl]
         rg = _Regridder(lat2d, lon2d)
         levs = [int(p) for p in iso["isobaricInhPa"].values]
 
         f = {"u": {}, "v": {}, "t": {}, "rh": {}, "gh": {}}
         for p in levs:
             lvl = iso.sel(isobaricInhPa=p)
-            ue, ve = _rotate(lvl["u"].values, lvl["v"].values, lon2d, iso["u"].attrs)
+            ue, ve = _rotate(lvl["u"].values[sl], lvl["v"].values[sl], lon2d, iso["u"].attrs)
             f["u"][p], f["v"][p] = rg(ue), rg(ve)
-            f["t"][p] = rg(lvl["t"].values)
-            f["rh"][p] = rg(lvl["r"].values)
-            f["gh"][p] = rg(lvl["gh"].values)
+            f["t"][p] = rg(lvl["t"].values[sl])
+            f["rh"][p] = rg(lvl["r"].values[sl])
+            f["gh"][p] = rg(lvl["gh"].values[sl])
 
         f["pw"] = None
         try:
-            f["pw"] = rg(_open(path, shortName="pwat")["pwat"].values)
+            f["pw"] = rg(_open(path, shortName="pwat")["pwat"].values[sl])
         except Exception as exc:  # noqa: BLE001
             log.warning("RAP PWAT missing: %s", exc)
         f["cape"] = None
         try:
-            f["cape"] = rg(_open(path, shortName="cape", typeOfLevel="pressureFromGroundLayer")["cape"].values)
+            cp = _open(path, shortName="cape", typeOfLevel="pressureFromGroundLayer")["cape"]
+            if cp.ndim == 3:        # several layers came through; keep the shallowest (90-0 hPa)
+                cp = cp.isel({cp.dims[0]: 0})
+            f["cape"] = rg(cp.values[sl])
         except Exception as exc:  # noqa: BLE001
             log.warning("RAP MLCAPE missing: %s", exc)
         return f

@@ -54,8 +54,9 @@ OVERLAYS = [
 ]
 
 
-def overlay_path(site, dom, oid, key):
-    return os.path.join(site, "data", dom["dir"], oid, f"{key}.png")
+def overlay_path(site, dom, oid, key, fc=False):
+    """Observed overlays live in data/<dir>/, HRRR forecast overlays in data/<dir>_fc/."""
+    return os.path.join(site, "data", dom["dir"] + ("_fc" if fc else ""), oid, f"{key}.png")
 
 
 # ---------------------------------------------------------------- domain windowing
@@ -228,7 +229,7 @@ def draw_rappw(f, dom, path):
     _save(fig, path)
 
 
-def render_all(f, key, site, todo):
+def render_all(f, key, site, todo, fc=False):
     """Render the (domain, overlay_id) pairs in `todo` for one valid time.
 
     Returns the list of (domain_id, overlay_id) pairs written.
@@ -248,7 +249,7 @@ def render_all(f, key, site, todo):
     done = []
     for dom, oid in todo:
         try:
-            jobs[oid](dom, overlay_path(site, dom, oid, key))
+            jobs[oid](dom, overlay_path(site, dom, oid, key, fc))
             done.append((dom["id"], oid))
         except Exception as exc:  # noqa: BLE001
             plt.close("all")

@@ -57,6 +57,31 @@ DOMAINS = [
      "ref_deg": 0.4, "counties": True},
 ]
 
+# ---- HRRR short-range forecast tail (appended after the newest MIMIC frame)
+HRRR_AWS = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com"
+HRRR_LEVELS = [925, 850, 700, 500]   # enough for q·V, theta-e, 925-700 MFC and 500 hPa
+FC_HOURS = 12                        # forecast frames after the last observed frame
+HRRR_STRIDE = 3                      # thin the 3 km grid to ~9 km before regridding to 0.1°
+
+# ---- GOES-East GLM flash density (flashes in the hour ending at each frame time)
+GLM_BUCKET = "https://noaa-goes19.s3.amazonaws.com"
+GLM_SAT = "G19"
+GLM_MAX_HOURS_PER_RUN = 12           # backfill cap so a cold start does not stall one run
+GLM_WORKERS = 16
+
+# ---- Observed soundings (Iowa Environmental Mesonet RAOB archive, CSV)
+RAOB_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/raob.py"
+SOUNDINGS = [
+    {"id": "KXMR", "name": "XMR", "lat": 28.48, "lon": -80.55},
+]
+
+# ---- PW climatology for the anomaly view
+CLIM_DAYS = 30                       # cold-start backfill: 00Z and 12Z for this many days
+CLIM_EMA_HOURS = 720                 # then an hourly exponential moving average (~30 days)
+
+# ---- MIMIC confidence: hours from the nearest actual microwave pass
+AGE_SCALE = 10.0                     # uint8 code = round(hours * 10), 255 = missing
+
 # Map markers drawn by the web page (also written to the manifest).
 MARKERS = [
     {"name": "Cape Canaveral", "lat": 28.49, "lon": -80.58},
