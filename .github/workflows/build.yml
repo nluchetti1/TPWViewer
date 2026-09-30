@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write            # lets the keepalive step re-enable this workflow
 
 concurrency:
   group: build-loop
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,3 +60,15 @@ jobs:
           publish_branch: gh-pages
           force_orphan: true        # single commit on gh-pages, no binary history bloat
           commit_message: "loop update"
+
+      - name: Keep the schedule alive
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # GitHub pauses scheduled workflows after 60 days without repo activity.
+          # Re-enabling once a day from inside the workflow keeps it running.
+          if [ "$(date -u +%H)" = "00" ]; then
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/build.yml/enable" \
+              && echo "schedule re-enabled" || echo "keepalive skipped"
+          fi
