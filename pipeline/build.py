@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import time
 
 import numpy as np
@@ -174,3 +175,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Everything is written by now. Skip interpreter teardown: a native library (eccodes or
+    # GEOS/cartopy) segfaults during shutdown on the Actions runner, which turned a good build
+    # into exit 139 and skipped the publish step. Exceptions in main() still exit non-zero.
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
