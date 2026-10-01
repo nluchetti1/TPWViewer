@@ -72,7 +72,7 @@ GLM_WORKERS = 16
 # ---- Observed soundings (Iowa Environmental Mesonet RAOB archive, CSV)
 RAOB_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/raob.py"
 SOUNDINGS = [
-    {"id": "KXMR", "name": "XMR", "lat": 28.48, "lon": -80.55},
+    {"id": "XMR", "name": "XMR", "lat": 28.48, "lon": -80.55},
 ]
 
 # ---- PW climatology for the anomaly view
