@@ -1,8 +1,14 @@
-"""Observed precipitable water from rawinsondes via the IEM RAOB archive (CSV)."""
-import csv
+"""Observed precipitable water from SPC's observed-sounding archive.
+
+SPC keeps ~7 days of soundings at  {SPC}/YYMMDDHH_OBS/STATION.txt  in SHARPpy text format:
+a %RAW% block of "pres, hght, temp, dwpt, wdir, wspd" rows with -9999 for missing. Every
+launch hour gets its own _OBS folder, so off-hour launches (XMR's 10Z/15Z, specials) are
+included. Folders are discovered from SPC's index page, with the usual launch hours tried
+as a fallback.
+"""
 import datetime as dt
-import io
 import logging
+import re
 
 import numpy as np
 
@@ -10,76 +16,89 @@ from . import config as C
 
 log = logging.getLogger("raob")
 G = 9.80665
-# IEM identifiers vary by site; try these in order until one returns rows.
-ALT_IDS = {"KXMR": ["KXMR", "XMR", "74794"]}
+SPC = getattr(C, "SPC_SOUNDINGS", "https://www.spc.noaa.gov/exper/soundings")
+FALLBACK_HOURS = (0, 10, 12, 15)
+_DIR = re.compile(r"(\d{8})_OBS")
 
 
-def _pw_mm(levels):
-    """Integrate specific humidity over pressure from the lowest level up to 300 hPa.
-
-    Needs at least 5 levels with dewpoints spanning 850 to 500 hPa (the moist layer that
-    dominates PW); levels above the highest dewpoint contribute almost nothing.
-    """
-    lv = sorted(((p, td) for p, td in levels if p is not None and td is not None and p >= 300),
-                key=lambda x: -x[0])
-    if len(lv) < 5 or lv[0][0] < 850 or lv[-1][0] > 500:
+def parse_spc(text):
+    """Return (pressure_hPa, dewpoint_C) arrays from an SPC SHARPpy text sounding."""
+    if "%RAW%" not in text:
         return None
-    p = np.array([x[0] for x in lv])
-    td = np.array([x[1] for x in lv])
+    body = text.split("%RAW%", 1)[1].split("%END%", 1)[0]
+    p, td = [], []
+    for line in body.strip().splitlines():
+        parts = [x.strip() for x in line.split(",")]
+        if len(parts) < 4:
+            continue
+        try:
+            pres, dwpt = float(parts[0]), float(parts[3])
+        except ValueError:
+            continue
+        if pres > 0 and dwpt > -9000:
+            p.append(pres)
+            td.append(dwpt)
+    return np.array(p), np.array(td)
+
+
+def pw_mm(p, td, top=300.0):
+    """Surface-to-300 hPa precipitable water (mm). Matches SPC's PW to ~0.01 in."""
+    m = p >= top
+    p, td = p[m], td[m]
+    order = np.argsort(-p)
+    p, td = p[order], td[order]
+    if p.size < 5 or p[0] < 850 or p[-1] > 500:
+        return None
     e = 6.112 * np.exp(17.67 * td / (td + 243.5))
     q = 0.622 * e / (p - 0.378 * e)
     integ = getattr(np, "trapezoid", None) or np.trapz
     return float(integ(q[::-1], p[::-1] * 100.0) / G)
 
 
-def _num(v):
+def _candidates(session, start, end):
+    dirs = set()
     try:
-        x = float(v)
-        return None if np.isnan(x) else x
-    except (TypeError, ValueError):
-        return None
-
-
-def _query(session, station, start, end):
-    r = session.get(C.RAOB_URL, params={
-        "station": station,
-        "sts": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "ets": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }, timeout=60)
-    r.raise_for_status()
-    return list(csv.DictReader(io.StringIO(r.text)))
+        r = session.get(SPC + "/", timeout=60)
+        if r.ok:
+            dirs |= set(_DIR.findall(r.text))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("SPC index unavailable: %s", exc)
+    found_index = len(dirs)
+    t = start.replace(minute=0, second=0, microsecond=0)
+    while t <= end:
+        if t.hour in FALLBACK_HOURS:
+            dirs.add(t.strftime("%y%m%d%H"))
+        t += dt.timedelta(hours=1)
+    keep = []
+    for d in sorted(dirs):
+        try:
+            ts = dt.datetime.strptime(d, "%y%m%d%H").replace(tzinfo=dt.timezone.utc)
+        except ValueError:
+            continue
+        if start <= ts <= end:
+            keep.append((ts, d))
+    return keep, found_index
 
 
 def fetch(session, start, end):
     """Return manifest-ready station dicts with a list of {t, pw} observations."""
+    cands, n_index = _candidates(session, start, end)
     out = []
     for st in C.SOUNDINGS:
-        obs = []
-        try:
-            rows, used = [], st["id"]
-            for sid in ALT_IDS.get(st["id"], [st["id"]]):
-                rows = _query(session, sid, start, end)
-                log.info("RAOB %s: %d rows from IEM", sid, len(rows))
-                if rows:
-                    used = sid
-                    break
-            by_time = {}
-            for row in rows:
-                t = row.get("validUTC") or row.get("valid")
-                if not t:
+        obs, missing = [], 0
+        for ts, d in cands:
+            try:
+                r = session.get(f"{SPC}/{d}_OBS/{st['id']}.txt", timeout=30)
+                if r.status_code != 200:
+                    missing += 1
                     continue
-                by_time.setdefault(t, []).append((_num(row.get("pressure_mb")), _num(row.get("dwpc"))))
-            rejected = 0
-            for t, levels in sorted(by_time.items()):
-                pw = _pw_mm(levels)
-                if pw is None:
-                    rejected += 1
-                    continue
-                ts = dt.datetime.fromisoformat(t.replace("Z", "").replace(" ", "T")).replace(tzinfo=dt.timezone.utc)
-                obs.append({"t": ts.strftime("%Y-%m-%dT%H:%MZ"), "pw": round(pw, 1)})
-            log.info("RAOB %s (as %s): %d soundings, %d with PW, %d rejected by QC",
-                     st["id"], used, len(by_time), len(obs), rejected)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("RAOB %s failed: %s", st["id"], exc)
+                parsed = parse_spc(r.text)
+                pw = pw_mm(*parsed) if parsed else None
+                if pw is not None:
+                    obs.append({"t": ts.strftime("%Y-%m-%dT%H:%MZ"), "pw": round(pw, 1)})
+            except Exception as exc:  # noqa: BLE001
+                log.debug("SPC %s %s failed: %s", d, st["id"], exc)
+        log.info("SPC soundings %s: %d with PW (%d hours checked, %d from index, %d without a launch)",
+                 st["id"], len(obs), len(cands), n_index, missing)
         out.append({**st, "obs": obs})
     return out
