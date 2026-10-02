@@ -158,6 +158,11 @@ input[type=range]{width:100%;accent-color:var(--ice)}
 .chartkey span::before{content:"";display:inline-block;width:14px;height:3px;margin-right:5px;vertical-align:middle;background:var(--c)}
 .seg.four button{font-size:13px;padding:7px 2px}
 [hidden]{display:none !important}
+.rangeRow{display:grid;grid-template-columns:40px 1fr auto;gap:8px;align-items:center;font-size:14px}
+.rangeRow select{padding:7px 30px 7px 9px;font-size:14px}
+.mini{border:1px solid var(--edge);background:transparent;border-radius:3px;height:32px;padding:0 9px;cursor:pointer;font-size:13px;color:var(--mute)}
+.mini:hover{border-color:var(--amber);color:var(--amber)}
+.track .band{position:absolute;top:15px;height:14px;background:rgba(255,181,71,.16);border:1px solid rgba(255,181,71,.55);border-radius:2px;pointer-events:none}
 </style>
 </head>
 <body>
@@ -191,7 +196,7 @@ input[type=range]{width:100%;accent-color:var(--ice)}
       <button class="btn play" id="play" title="Play or pause (space)" aria-label="Play or pause"><svg viewBox="0 0 16 16" id="playicon"><path d="M3 2h3.5v12H3zM9.5 2H13v12H9.5z"/></svg></button>
       <button class="btn" id="next" title="Next frame (→)" aria-label="Next frame"><svg viewBox="0 0 16 16"><path d="M11 2h2v12h-2zM2 2v12l8-6z"/></svg></button>
       <div class="track" id="track" role="slider" tabindex="0" aria-label="Frame time">
-        <div class="rail"></div><div class="glow" id="glow"></div><div class="ticks" id="ticks"></div><div class="head" id="head"></div>
+        <div class="rail"></div><div class="band" id="band" hidden></div><div class="glow" id="glow"></div><div class="ticks" id="ticks"></div><div class="head" id="head"></div>
       </div>
       <div class="frameinfo" id="frameinfo">0/0</div>
     </div>
@@ -274,17 +279,19 @@ input[type=range]{width:100%;accent-color:var(--ice)}
       <div class="seg" id="modeSeg"><button data-v="loop" aria-pressed="true">Loop</button><button data-v="rock">Rock</button></div>
     </div>
     <div class="group">
-      <span class="lbl">Export</span>
+      <div class="row"><span class="lbl">Export</span><button class="mini" id="gifAll" title="Export the whole loop">Full loop</button></div>
+      <div class="rangeRow"><label for="gifFrom">From</label><select id="gifFrom"></select><button class="mini" id="gifFromNow" title="Start at the frame on screen">Current</button></div>
+      <div class="rangeRow"><label for="gifTo">To</label><select id="gifTo"></select><button class="mini" id="gifToNow" title="End at the frame on screen">Current</button></div>
       <div class="row">
         <select id="gifSize" aria-label="GIF width" style="flex:1">
           <option value="900">900 px wide</option><option value="1200" selected>1200 px wide</option><option value="1500">1500 px wide</option>
         </select>
         <button class="btn export" id="gifBtn">Download GIF</button>
       </div>
-      <div class="ovlnote" id="gifnote">Saves the loop as you see it, including forecast frames and layers.</div>
+      <div class="ovlnote" id="gifnote"></div>
     </div>
     <div class="kbd">Space plays or pauses. Arrows step. Z switches domain, L lightning, T threshold. Click the map to chart a point.</div>
-    <div class="foot">TPW: <a href="https://tropic.ssec.wisc.edu/real-time/mtpw2/" target="_blank" rel="noopener">MIMIC-TPW2, UW-CIMSS</a>. Overlays: NOAA RAP analysis; forecast: NOAA HRRR. Lightning: GOES-19 GLM. Soundings: Iowa Environmental Mesonet.</div>
+    <div class="foot">TPW: <a href="https://tropic.ssec.wisc.edu/real-time/mtpw2/" target="_blank" rel="noopener">MIMIC-TPW2, UW-CIMSS</a>. Overlays: NOAA RAP analysis; forecast: NOAA HRRR. Lightning: GOES-19 GLM. Soundings: NWS Storm Prediction Center.</div>
   </aside>
 </div>
 <script>
@@ -328,6 +335,7 @@ const S = {
   dom:"se", base:"tpw", pal:"nrl", units:"mm", ovl:"none", opac:1, span:24,
   fcOn:true, glm:false, thrOn:false, thr:50.8, conf:false, confH:3,
   coast:true, grid:true, marks:true, smooth:true, probe:null,
+  gifFrom:null, gifTo:null,     // frame keys; null = loop start / end
 };
 const grids = new Map();
 const imgs = new Map();
@@ -863,6 +871,35 @@ function updateRefArrow(){
 }
 
 // ------------------------------------------------------------ animated GIF export
+// ---- export range (From / To frames)
+function frameLabel(f){ return fmtUTC(f.t) + (f.fc ? ` (HRRR +${f.fh} h)` : ""); }
+function rangeIdx(){
+  const n = S.vis.length;
+  let a = S.vis.findIndex(f => f.key === S.gifFrom), b = S.vis.findIndex(f => f.key === S.gifTo);
+  if (a < 0) a = 0; if (b < 0) b = n - 1;
+  return a <= b ? [a, b] : [b, a];
+}
+function updateRange(){
+  const n = S.vis.length, band = $("band");
+  if (!n){ band.hidden = true; return; }
+  const [a, b] = rangeIdx();
+  $("gifFrom").value = S.vis[a].key; $("gifTo").value = S.vis[b].key;
+  const full = a === 0 && b === n - 1;
+  band.hidden = full;
+  if (!full){ const L = n > 1 ? a/(n-1)*100 : 0, R = n > 1 ? b/(n-1)*100 : 0;
+    band.style.left = `calc(${L}% - 4px)`; band.style.width = `calc(${R - L}% + 8px)`; }
+  const cnt = b - a + 1, secs = (cnt - 1) / S.fps + 1.5;
+  $("gifnote").textContent = `${cnt} frame${cnt > 1 ? "s" : ""}, ${fmtUTC(S.vis[a].t)} to ${fmtUTC(S.vis[b].t)}` +
+    `${S.vis[b].fc ? " (into the forecast)" : ""}, about ${secs.toFixed(1)} s per loop. Layers and overlay as shown.`;
+}
+function buildRange(){
+  for (const id of ["gifFrom", "gifTo"]){
+    const sel = $(id); sel.innerHTML = "";
+    S.vis.forEach(f => { const o = document.createElement("option"); o.value = f.key; o.textContent = frameLabel(f); sel.appendChild(o); });
+  }
+  updateRange();
+}
+
 let gifBusy = false;
 function loadScript(src){
   return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("could not load "+src)); document.head.appendChild(s); });
@@ -904,7 +941,8 @@ async function exportGif(){
     const w = +$("gifSize").value, h = Math.round(w*2/3), k = w/1200, fh = Math.round(64*k), H = h + fh;
     const cv = document.createElement("canvas"); cv.width = w; cv.height = H;
     const ctx = cv.getContext("2d", {willReadFrequently:true});
-    const frames = S.vis.slice();
+    const [ra, rb] = rangeIdx();
+    const frames = S.vis.slice(ra, rb + 1);
     await Promise.all(frames.flatMap(f => kindsFor(f).map(kind => getGrid(kind, f))));
     const coast = S.coast ? await loadImage("data/" + D().coast) : null;
     const enc = GIFENC.GIFEncoder(), delay = Math.round(1000/S.fps);
@@ -962,7 +1000,7 @@ function setVisible(){
   const j = S.vis.findIndex(f => f.key === keep);
   const lastObs = S.vis.reduce((a, f, i) => f.fc ? a : i, 0);
   S.i = j >= 0 ? j : lastObs;
-  buildTicks(); if (chartGeom) chartGeom.snapshot = null;
+  buildTicks(); buildRange(); if (chartGeom) chartGeom.snapshot = null;
 }
 function applyDomain(){
   const d = D();
@@ -1002,7 +1040,7 @@ function wire(){
 
   $("palSel").value = S.pal;
   $("palSel").addEventListener("change", e => { S.pal = e.target.value; LUT = lutFrom(PAL[S.pal], 0, 255/S.man.scale); drawLegend(); drawBase(); writeHash(); });
-  $("speed").addEventListener("input", e => { S.fps = +e.target.value; $("speedv").textContent = S.fps+" fps"; });
+  $("speed").addEventListener("input", e => { S.fps = +e.target.value; $("speedv").textContent = S.fps+" fps"; updateRange(); });
 
   const tg = (id, key, after) => { const el = $(id); el.checked = S[key];
     el.addEventListener("change", e => { S[key] = e.target.checked; after(); writeHash(); }); };
@@ -1024,6 +1062,11 @@ function wire(){
 
   $("play").addEventListener("click", () => setPlaying(!S.playing));
   $("gifBtn").addEventListener("click", exportGif);
+  $("gifFrom").addEventListener("change", e => { S.gifFrom = e.target.value; updateRange(); });
+  $("gifTo").addEventListener("change", e => { S.gifTo = e.target.value; updateRange(); });
+  $("gifFromNow").addEventListener("click", () => { if (cur()){ S.gifFrom = cur().key; updateRange(); } });
+  $("gifToNow").addEventListener("click", () => { if (cur()){ S.gifTo = cur().key; updateRange(); } });
+  $("gifAll").addEventListener("click", () => { S.gifFrom = S.gifTo = null; updateRange(); });
   $("prev").addEventListener("click", () => { setPlaying(false); step(-1); });
   $("next").addEventListener("click", () => { setPlaying(false); step(1); });
   $("probeClose").addEventListener("click", () => setProbe(null));
