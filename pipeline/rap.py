@@ -81,10 +81,16 @@ def fetch_idx_records(session, base, levels):
         end = int(lines[i + 1][1]) - 1 if i + 1 < len(lines) else None
         ranges.append([start, end])
     if not ranges:
-        raise RuntimeError(f"no matching RAP records in {base}.idx")
+        raise RuntimeError(f"no matching records in {base}.idx")
+    return fetch_ranges(session, base, ranges)
 
-    # merge ranges separated by small gaps to cut the request count
-    ranges.sort(key=lambda x: x[0])
+
+def fetch_ranges(session, base, ranges):
+    """Download byte ranges [start, end] (end None = to EOF) from one file and concatenate them.
+
+    Ranges separated by small gaps are merged to cut the request count.
+    """
+    ranges = sorted([list(r) for r in ranges], key=lambda x: x[0])
     merged = [ranges[0][:]]
     for s, e in ranges[1:]:
         last = merged[-1]
@@ -100,7 +106,6 @@ def fetch_idx_records(session, base, levels):
         rr.raise_for_status()
         chunks.append((s, rr.content))
 
-    # keep only the wanted records out of the merged chunks
     out = bytearray()
     for s, e in ranges:
         for cs, blob in chunks:

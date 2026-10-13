@@ -31,10 +31,10 @@ THETA = LinearSegmentedColormap.from_list("theta", ["#7FB2FF", "#8FEFFF", "#E8FF
 # Vector reference: an arrow of `value` spans the domain's `ref_deg` degrees of longitude.
 OVERLAYS = [
     {"id": "mflux925", "group": "Moisture transport", "name": "925 hPa moisture transport",
-     "legend": "Vectors of q·V at 925 hPa (RAP analysis).", "opacity": 1.0,
+     "legend": "Vectors of q·V at 925 hPa.", "opacity": 1.0,
      "ref": {"value": 150, "units": "g kg⁻¹ m s⁻¹"}},
     {"id": "mflux850", "group": "Moisture transport", "name": "850 hPa moisture transport",
-     "legend": "Vectors of q·V at 850 hPa (RAP analysis).", "opacity": 1.0,
+     "legend": "Vectors of q·V at 850 hPa.", "opacity": 1.0,
      "ref": {"value": 150, "units": "g kg⁻¹ m s⁻¹"}},
     {"id": "mfc", "group": "Moisture transport", "name": "925–700 hPa moisture flux convergence",
      "legend": "Layer-integrated MFC in mm/day. Blue-white = convergence, amber = divergence.",
@@ -55,8 +55,9 @@ OVERLAYS = [
 
 
 def overlay_path(site, dom, oid, key, fc=False):
-    """Observed overlays live in data/<dir>/, HRRR forecast overlays in data/<dir>_fc/."""
-    return os.path.join(site, "data", dom["dir"] + ("_fc" if fc else ""), oid, f"{key}.png")
+    """Observed overlays: data/<dir>/. HRRR tail: data/<dir>_fc/. GFS/ECMWF tails: data/<dir>_fc_<src>/."""
+    suffix = "" if not fc else "_fc" if fc is True or fc == "hrrr" else f"_fc_{fc}"
+    return os.path.join(site, "data", dom["dir"] + suffix, oid, f"{key}.png")
 
 
 # ---------------------------------------------------------------- domain windowing

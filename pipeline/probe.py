@@ -105,10 +105,15 @@ def probe_long(s):
         steps = C.GFS_STEPS if src == "gfs" else C.ECMWF_STEPS
         for c in longrange._cycles(src, C.utc_now_hour()):
             if longrange.available(s, src, c, steps[-1]):
-                b = longrange.fetch_pw_bytes(s, src, c, 24)
-                pw = longrange.decode_pw(b)
-                ok(f"{src.upper()} {C.key(c)}Z complete to {steps[-1]} h; f024 record {len(b)/1e6:.2f} MB, "
-                   f"PW at the Cape {pw[iy, ix]:.1f} mm, domain {np.nanmin(pw):.0f}-{np.nanmax(pw):.0f} mm")
+                b = longrange.fetch_bytes(s, src, c, 24, full=True)
+                f = longrange.decode(b)
+                pw = f["pw"]
+                u, v = f["u"].get(850), f["v"].get(850)
+                wind = (f"850 hPa wind at the Cape {np.degrees(np.arctan2(-u[iy, ix], -v[iy, ix])) % 360:.0f}° "
+                        f"{np.hypot(u[iy, ix], v[iy, ix]) * 1.944:.0f} kt" if u is not None else "850 hPa wind MISSING")
+                ok(f"{src.upper()} {C.key(c)}Z complete to {steps[-1]} h; f024 {len(b)/1e6:.1f} MB, levels "
+                   f"{sorted(f['u'])}, CAPE {'ok' if f['cape'] is not None else 'MISSING'}; PW at the Cape "
+                   f"{pw[iy, ix]:.1f} mm; {wind}")
                 break
         else:
             bad(f"{src.upper()}: no complete cycle in the last 36 h")

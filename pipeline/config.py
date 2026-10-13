@@ -70,6 +70,8 @@ ECMWF_ROOTS = ["https://data.ecmwf.int/forecasts",                  # primary
                "https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com"]  # AWS mirror
 ECMWF_STEPS = list(range(3, 145, 3)) + list(range(150, 241, 6))     # 00/12Z HRES open data
 LONG_WORKERS = 6
+LR_LEVELS = [925, 850, 700, 500]     # pressure levels pulled for GFS/ECMWF overlays
+LR_OVERLAYS = True                   # render the 9 model overlays on GFS/ECMWF frames too
 
 # ---- GOES-East ABI imagery (CONUS sector cloud & moisture imagery, per band)
 ABI_PRODUCT = "ABI-L2-CMIPC"
