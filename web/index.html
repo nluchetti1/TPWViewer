@@ -42,7 +42,8 @@ header{grid-column:1/-1;display:flex;align-items:flex-end;justify-content:space-
 .led.old{background:var(--warn);box-shadow:0 0 10px var(--warn)}
 
 /* ---------- stage */
-.stagewrap{grid-column:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+.stagewrap{grid-column:1;min-width:0;display:flex;flex-direction:column;gap:12px;
+  width:min(100%, calc((100vh - 200px) * 1.5));justify-self:center}
 .stage{position:relative;width:100%;aspect-ratio:3/2;background:#0B1F33;overflow:hidden;cursor:crosshair;
   border:1px solid var(--edge);border-radius:4px;box-shadow:0 30px 80px -40px rgba(0,0,0,.8),inset 0 0 0 1px rgba(143,239,255,.05)}
 .stage>*{position:absolute;inset:0;width:100%;height:100%}
@@ -96,7 +97,8 @@ header{grid-column:1/-1;display:flex;align-items:flex-end;justify-content:space-
 
 /* ---------- side panel */
 aside{grid-column:2;grid-row:2/4;display:flex;flex-direction:column;gap:16px;padding:16px;border:1px solid var(--edge);
-  border-radius:4px;background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);align-self:start}
+  border-radius:4px;background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);align-self:start;
+  position:sticky;top:12px;max-height:calc(100vh - 24px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--edge) transparent}
 .group{display:flex;flex-direction:column;gap:7px}
 .group>label,.group>.lbl{font-size:13px;color:var(--mute)}
 .seg{display:flex;border:1px solid var(--edge);border-radius:3px;overflow:hidden}
@@ -130,9 +132,10 @@ input[type=range]{width:100%;accent-color:var(--ice)}
 
 @media (max-width:980px){
   .app{grid-template-columns:1fr;padding:12px}
-  aside{grid-column:1;grid-row:auto}
-  .stagewrap{grid-column:1}
+  aside{grid-column:1;grid-row:auto;position:static;max-height:none;overflow:visible}
+  .stagewrap{grid-column:1;width:100%}
 }
+@media (max-height:560px) and (min-width:981px){ .stagewrap{width:min(100%, 540px)} }
 @media (prefers-reduced-motion:reduce){.sweep{display:none}.tg input::after{transition:none}}
 /* ---------- additions: forecast, layers, probe chart */
 .badge{display:inline-block;margin-left:.7em;padding:3px 8px 2px;border:1px solid var(--amber);border-radius:3px;
@@ -221,8 +224,8 @@ input[type=range]{width:100%;accent-color:var(--ice)}
       <label for="fcSel">Forecast tail</label>
       <select id="fcSel">
         <option value="hrrr">HRRR, 12 h with overlays</option>
-        <option value="gfs">GFS PW, up to 10 days</option>
-        <option value="ecmwf">ECMWF PW, up to 10 days</option>
+        <option value="gfs">GFS, up to 10 days</option>
+        <option value="ecmwf">ECMWF, up to 10 days</option>
         <option value="off">Off (observed only)</option>
       </select>
       <div class="seg" id="fcDaysSeg"><button data-v="3">3 days</button><button data-v="5" aria-pressed="true">5 days</button><button data-v="10">10 days</button></div>
@@ -302,6 +305,7 @@ input[type=range]{width:100%;accent-color:var(--ice)}
     </div>
     <div class="group">
       <div class="row"><span class="lbl">Export</span><button class="mini" id="gifAll" title="Export the whole loop">Full loop</button></div>
+      <div class="rangeRow"><label for="gifFc">Tail</label><select id="gifFc"></select><span></span></div>
       <div class="rangeRow"><label for="gifFrom">From</label><select id="gifFrom"></select><button class="mini" id="gifFromNow" title="Start at the frame on screen">Current</button></div>
       <div class="rangeRow"><label for="gifTo">To</label><select id="gifTo"></select><button class="mini" id="gifToNow" title="End at the frame on screen">Current</button></div>
       <div class="row">
@@ -312,7 +316,7 @@ input[type=range]{width:100%;accent-color:var(--ice)}
       </div>
       <div class="ovlnote" id="gifnote"></div>
     </div>
-    <div class="kbd">Space plays or pauses. Arrows step. Z switches domain, S satellite, L lightning, T threshold. Click the map to chart a point.</div>
+    <div class="kbd">Space plays or pauses. ← → step one frame (Shift jumps 6). Z switches domain, S satellite, L lightning, T threshold. Click the map to chart a point.</div>
     <div class="foot">TPW: <a href="https://tropic.ssec.wisc.edu/real-time/mtpw2/" target="_blank" rel="noopener">MIMIC-TPW2, UW-CIMSS</a>. Overlays: NOAA RAP analysis; forecasts: NOAA HRRR and GFS, ECMWF open data (CC BY 4.0). Imagery: GOES-19 ABI. Lightning: GOES-19 GLM. Soundings: NWS Storm Prediction Center.</div>
   </aside>
 </div>
@@ -357,7 +361,8 @@ const S = {
   dom:"se", base:"tpw", pal:"nrl", units:"mm", ovl:"none", opac:1, span:24,
   fcSrc:"hrrr", fcDays:5, sat:"none", shade:1, glm:false, thrOn:false, thr:50.8, conf:false, confH:3,
   coast:true, grid:true, marks:true, smooth:true, probe:null,
-  gifFrom:null, gifTo:null,     // frame keys; null = loop start / end
+  gifFrom:null, gifTo:null,     // frame keys; null = sequence start / end
+  gifFc:"same",                 // forecast tail in the GIF: same | none | hrrr | gfs | ecmwf
 };
 const grids = new Map();
 const imgs = new Map();
@@ -406,7 +411,6 @@ function cycleOf(src){
 function cycle(){ return cycleOf("hrrr"); }
 function ovlList(f){
   if (!f || !f.ovl) return [];
-  if (f.fc && f.src !== "hrrr") return [];
   if (Array.isArray(f.ovl)) return S.dom === "se" ? f.ovl : [];
   return f.ovl[D().id] || [];
 }
@@ -419,10 +423,10 @@ function loadFrames(m){
              ecmwf: mk(m.fcx && m.fcx.ecmwf && m.fcx.ecmwf.frames, "ecmwf")};
   S.fc = fcFrames();
 }
-function fcFrames(){
-  if (S.fcSrc === "off" || !S.fcAll) return [];
-  const all = S.fcAll[S.fcSrc] || [];
-  if (S.fcSrc === "hrrr" || !all.length) return all;
+function fcFrames(src = S.fcSrc){
+  if (src === "off" || src === "none" || !S.fcAll) return [];
+  const all = S.fcAll[src] || [];
+  if (src === "hrrr" || !all.length) return all;
   const lastObs = S.obs.length ? new Date(S.obs[S.obs.length-1].t).getTime() : new Date(all[0].t).getTime();
   return all.filter(f => new Date(f.t).getTime() <= lastObs + S.fcDays*864e5);
 }
@@ -434,9 +438,12 @@ function updateFcOptions(){
   sel.value = S.fcSrc;
   $("fcDaysSeg").hidden = !(S.fcSrc === "gfs" || S.fcSrc === "ecmwf");
   const fr = S.fcAll[S.fcSrc] || [];
+  if ($("gifFc").options.length) buildGifFcOptions();
   $("fcnote").textContent = S.fcSrc === "off" ? "Loop ends at the newest observed frame." :
     S.fcSrc === "hrrr" ? `HRRR ${cycleOf("hrrr").slice(8,10)}Z, hourly PW plus all model overlays.` :
-    `${FC_NAMES[S.fcSrc]} ${cycleOf(S.fcSrc).slice(6,8)}/${cycleOf(S.fcSrc).slice(8,10)}Z, PW only, ` +
+    `${FC_NAMES[S.fcSrc]} ${cycleOf(S.fcSrc).slice(6,8)}/${cycleOf(S.fcSrc).slice(8,10)}Z, PW` +
+    `${(S.man.fcx[S.fcSrc] || {}).overlays ? " and model overlays" : " only"}` +
+    `${S.fcSrc === "ecmwf" ? " (CAPE overlay is MUCAPE)" : ""}, ` +
     `${S.fcSrc === "gfs" ? "3-hourly" : "3-hourly to 6 days, then 6-hourly"}; ${fr.length ? "out to " + fmtUTC(fr[fr.length-1].t) : "no frames"}.`;
 }
 
@@ -467,8 +474,8 @@ function kindsFor(f){
   return k;
 }
 function ovlSrc(oid, f){
-  const dir = D().dir + (f.fc ? "_fc" : "");
-  return `data/${dir}/${oid}/${f.key}.png` + (f.fc ? `?c=${cycle()}` : "");
+  const dir = D().dir + (!f.fc ? "" : f.src === "hrrr" ? "_fc" : `_fc_${f.src}`);
+  return `data/${dir}/${oid}/${f.key}.png` + (f.fc ? `?c=${cycleOf(f.src)}` : "");
 }
 function getImg(oid, f){
   const src = ovlSrc(oid, f);
@@ -693,8 +700,7 @@ function drawOverlay(){
   if (!f || S.ovl === "none" || !ovlList(f).includes(S.ovl)){
     el.style.visibility = "hidden";
     if (f && S.ovl !== "none" && !$("notice").textContent)
-      notice(f.fc && f.src !== "hrrr" ? "Model overlays are HRRR-only; GFS and ECMWF tails show PW." :
-             f.fc ? "No HRRR overlay for this hour." : "No model overlay for this hour yet.");
+      notice(f.fc ? `No ${FC_NAMES[f.src]} overlay for this hour.` : "No model overlay for this hour yet.");
     return;
   }
   const im = getImg(S.ovl, f);
@@ -944,7 +950,8 @@ function drawLegend(){
 }
 function updateOverlayNote(){
   const o = (S.man.overlays||[]).find(o => o.id === S.ovl);
-  $("ovlnote").textContent = o ? o.legend : "Pick a model field to lay over the satellite moisture.";
+  $("ovlnote").textContent = o ? o.legend + " Observed hours use the RAP analysis; forecast hours use the tail's own model." :
+    "Pick a model field to lay over the satellite moisture.";
   $("ovlSel").classList.toggle("hot", S.ovl !== "none");
   const ra = $("refarrow");
   if (o && o.ref){ ra.hidden = false; $("reftxt").textContent = `${o.ref.value} ${o.ref.units}`; updateRefArrow(); }
@@ -959,31 +966,54 @@ function updateRefArrow(){
 
 // ------------------------------------------------------------ animated GIF export
 // ---- export range (From / To frames)
-function frameLabel(f){ return fmtUTC(f.t) + (f.fc ? ` (HRRR +${f.fh} h)` : ""); }
+function frameLabel(f){ return fmtUTC(f.t) + (f.fc ? ` (${FC_NAMES[f.src]} +${f.fh} h)` : ""); }
+// Frames the GIF draws from: the observed loop plus the chosen forecast tail.
+function exportFrames(){
+  if (S.gifFc === "same") return S.vis;
+  return S.obs.slice(-S.span).concat(fcFrames(S.gifFc));
+}
+function buildGifFcOptions(){
+  const sel = $("gifFc"), keep = S.gifFc; sel.innerHTML = "";
+  const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
+  add("same", "Same as the loop"); add("none", "None (observed only)");
+  const days = ` (${S.fcDays} days)`;
+  if ((S.fcAll.hrrr || []).length) add("hrrr", "HRRR, 12 h");
+  if ((S.fcAll.gfs || []).length) add("gfs", "GFS" + days);
+  if ((S.fcAll.ecmwf || []).length) add("ecmwf", "ECMWF" + days);
+  S.gifFc = [...sel.options].some(o => o.value === keep) ? keep : "same";
+  sel.value = S.gifFc;
+}
 function rangeIdx(){
-  const n = S.vis.length;
-  let a = S.vis.findIndex(f => f.key === S.gifFrom), b = S.vis.findIndex(f => f.key === S.gifTo);
+  const E = exportFrames(), n = E.length;
+  let a = E.findIndex(f => f.key === S.gifFrom && !!f.fc === !!S.gifFromFc), b = E.findIndex(f => f.key === S.gifTo && !!f.fc === !!S.gifToFc);
   if (a < 0) a = 0; if (b < 0) b = n - 1;
   return a <= b ? [a, b] : [b, a];
 }
 function updateRange(){
-  const n = S.vis.length, band = $("band");
-  if (!n){ band.hidden = true; return; }
+  const E = exportFrames(), n = E.length, band = $("band");
+  if (!n){ band.hidden = true; $("gifnote").textContent = "No frames to export."; return; }
   const [a, b] = rangeIdx();
-  $("gifFrom").value = S.vis[a].key; $("gifTo").value = S.vis[b].key;
+  $("gifFrom").selectedIndex = a; $("gifTo").selectedIndex = b;
   const full = a === 0 && b === n - 1;
-  band.hidden = full;
+  band.hidden = full || S.gifFc !== "same";      // the band marks the on-screen loop only
   if (!full){ const L = n > 1 ? a/(n-1)*100 : 0, R = n > 1 ? b/(n-1)*100 : 0;
     band.style.left = `calc(${L}% - 4px)`; band.style.width = `calc(${R - L}% + 8px)`; }
   const cnt = b - a + 1, secs = (cnt - 1) / S.fps + 1.5;
-  $("gifnote").textContent = `${cnt} frame${cnt > 1 ? "s" : ""}, ${fmtUTC(S.vis[a].t)} to ${fmtUTC(S.vis[b].t)}` +
-    `${S.vis[b].fc ? " (into the forecast)" : ""}, about ${secs.toFixed(1)} s per loop. Layers and overlay as shown.`;
+  const tail = E[b].fc ? ` (into the ${FC_NAMES[E[b].src]} forecast)` : "";
+  $("gifnote").textContent = `${cnt} frame${cnt > 1 ? "s" : ""}, ${fmtUTC(E[a].t)} to ${fmtUTC(E[b].t)}${tail}, ` +
+    `about ${secs.toFixed(1)} s per loop. Layers and overlay as shown` + (cnt > 60 ? "; long GIFs can be 10+ MB." : ".");
 }
 function buildRange(){
+  const E = exportFrames();
   for (const id of ["gifFrom", "gifTo"]){
     const sel = $(id); sel.innerHTML = "";
-    S.vis.forEach(f => { const o = document.createElement("option"); o.value = f.key; o.textContent = frameLabel(f); sel.appendChild(o); });
+    E.forEach((f, i) => { const o = document.createElement("option"); o.value = i; o.textContent = frameLabel(f); sel.appendChild(o); });
   }
+  updateRange();
+}
+function setRangeEnd(which, f){
+  if (!f) return;
+  if (which === "from"){ S.gifFrom = f.key; S.gifFromFc = !!f.fc; } else { S.gifTo = f.key; S.gifToFc = !!f.fc; }
   updateRange();
 }
 
@@ -1030,7 +1060,7 @@ async function exportGif(){
     const cv = document.createElement("canvas"); cv.width = w; cv.height = H;
     const ctx = cv.getContext("2d", {willReadFrequently:true});
     const [ra, rb] = rangeIdx();
-    const frames = S.vis.slice(ra, rb + 1);
+    const frames = exportFrames().slice(ra, rb + 1);
     await Promise.all(frames.flatMap(f => kindsFor(f).map(kind => getGrid(kind, f))));
     const coast = S.coast ? await loadImage("data/" + D().coast) : null;
     const enc = GIFENC.GIFEncoder(), delay = Math.round(1000/S.fps);
@@ -1163,11 +1193,19 @@ function wire(){
 
   $("play").addEventListener("click", () => setPlaying(!S.playing));
   $("gifBtn").addEventListener("click", exportGif);
-  $("gifFrom").addEventListener("change", e => { S.gifFrom = e.target.value; updateRange(); });
-  $("gifTo").addEventListener("change", e => { S.gifTo = e.target.value; updateRange(); });
-  $("gifFromNow").addEventListener("click", () => { if (cur()){ S.gifFrom = cur().key; updateRange(); } });
-  $("gifToNow").addEventListener("click", () => { if (cur()){ S.gifTo = cur().key; updateRange(); } });
+  $("gifFrom").addEventListener("change", e => setRangeEnd("from", exportFrames()[+e.target.value]));
+  $("gifTo").addEventListener("change", e => setRangeEnd("to", exportFrames()[+e.target.value]));
+  // "Current" uses the frame on screen when it exists in the export sequence (always true for
+  // observed frames; forecast frames only when the GIF tail matches the loop's tail)
+  const pickCur = which => { const f = cur(), E = exportFrames();
+    const m = f && E.find(e => e.key === f.key && !!e.fc === !!f.fc && (!f.fc || e.src === f.src));
+    if (m) setRangeEnd(which, m);
+    else $("gifnote").textContent = "That frame is not in the GIF's sequence; pick it from the list instead."; };
+  $("gifFromNow").addEventListener("click", () => pickCur("from"));
+  $("gifToNow").addEventListener("click", () => pickCur("to"));
   $("gifAll").addEventListener("click", () => { S.gifFrom = S.gifTo = null; updateRange(); });
+  buildGifFcOptions();
+  $("gifFc").addEventListener("change", e => { S.gifFc = e.target.value; S.gifTo = null; buildRange(); });
   $("prev").addEventListener("click", () => { setPlaying(false); step(-1); });
   $("next").addEventListener("click", () => { setPlaying(false); step(1); });
   $("probeClose").addEventListener("click", () => setProbe(null));
@@ -1177,12 +1215,24 @@ function wire(){
     const mv = ev => seekFromEvent(ev), up = () => { tr.removeEventListener("pointermove", mv); tr.removeEventListener("pointerup", up); };
     tr.addEventListener("pointermove", mv); tr.addEventListener("pointerup", up); });
 
+  document.addEventListener("change", e => {
+    if (e.target instanceof Element && e.target.matches("select, input[type=range], input[type=checkbox]")) e.target.blur();
+  });
   const flip = id => { const el = $(id); el.checked = !el.checked; el.dispatchEvent(new Event("change")); };
   document.addEventListener("keydown", e => {
-    if (e.target instanceof Element && e.target.matches("select,input")) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tgt = e.target instanceof Element ? e.target : null;
+    const typing = tgt && (tgt.matches("textarea, input:not([type=range]):not([type=checkbox])") || tgt.isContentEditable);
+    // Left/right step frames from anywhere except a text field, even with a menu or slider focused
+    // (up/down still adjust a focused menu or slider). Shift jumps 6 frames.
+    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !typing){
+      e.preventDefault(); setPlaying(false);
+      const n = e.shiftKey ? 6 : 1, d = e.key === "ArrowLeft" ? -n : n;
+      if (S.mode === "rock") step(d); else { S.i = Math.min(Math.max(S.i + d, 0), S.vis.length - 1); draw(); }
+      return;
+    }
+    if (tgt && tgt.matches("select, input")) return;
     if (e.code === "Space"){ e.preventDefault(); setPlaying(!S.playing); }
-    else if (e.key === "ArrowLeft"){ e.preventDefault(); setPlaying(false); step(-1); }
-    else if (e.key === "ArrowRight"){ e.preventDefault(); setPlaying(false); step(1); }
     else if (e.key === "Home"){ S.i = 0; draw(); } else if (e.key === "End"){ S.i = S.vis.length-1; draw(); }
     else if (e.key === "z" || e.key === "Z"){ const ds = domains(), j = ds.findIndex(d => d.id === S.dom);
       S.dom = ds[(j+1) % ds.length].id; syncDom(); applyDomain(); writeHash(); }
@@ -1245,7 +1295,7 @@ async function boot(){
         const oldClim = S.man.clim && S.man.clim.last;
         S.man = m; loadFrames(m);
         for (const f of S.obs.slice(-6)) for (const kind of ["tpw","age","rappw","glm"]) grids.delete(`${kind}/${f.key}`);
-        for (const src of [...imgs.keys()]) if (src.includes("_fc/") || S.obs.slice(-2).some(f => src.includes("/"+f.key+".png") || src.includes("/"+f.key+".jpg"))) imgs.delete(src);
+        for (const src of [...imgs.keys()]) if (src.includes("_fc") || S.obs.slice(-2).some(f => src.includes("/"+f.key+".png") || src.includes("/"+f.key+".jpg"))) imgs.delete(src);
         if (m.clim && m.clim.last !== oldClim) await loadClim();
         setVisible();
         if (atEnd) S.i = S.vis.reduce((a, f, i) => f.fc ? a : i, 0);
