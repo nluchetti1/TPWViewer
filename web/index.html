@@ -177,6 +177,7 @@ input[type=range]{width:100%;accent-color:var(--ice)}
 
   <div class="stagewrap">
     <div class="stage" id="stage" aria-label="Precipitable water map">
+      <img id="sat" alt="">
       <canvas id="base"></canvas>
       <canvas id="fxlow"></canvas>
       <img id="ovl" alt="">
@@ -217,6 +218,28 @@ input[type=range]{width:100%;accent-color:var(--ice)}
       </div>
     </div>
     <div class="group">
+      <label for="fcSel">Forecast tail</label>
+      <select id="fcSel">
+        <option value="hrrr">HRRR, 12 h with overlays</option>
+        <option value="gfs">GFS PW, up to 10 days</option>
+        <option value="ecmwf">ECMWF PW, up to 10 days</option>
+        <option value="off">Off (observed only)</option>
+      </select>
+      <div class="seg" id="fcDaysSeg"><button data-v="3">3 days</button><button data-v="5" aria-pressed="true">5 days</button><button data-v="10">10 days</button></div>
+      <div class="ovlnote" id="fcnote"></div>
+    </div>
+    <div class="group">
+      <label for="satSel">Satellite imagery</label>
+      <select id="satSel">
+        <option value="none">None</option>
+        <option value="vis">GOES-19 visible (0.64 µm)</option>
+        <option value="ir">GOES-19 clean IR (10.3 µm)</option>
+      </select>
+      <div class="row"><label for="shade">PW shading opacity</label><span id="shadev">100%</span></div>
+      <input type="range" id="shade" min="0" max="100" value="100">
+      <div class="ovlnote" id="satnote"></div>
+    </div>
+    <div class="group">
       <label for="ovlSel">Model overlay</label>
       <select id="ovlSel"><option value="none">None</option></select>
       <div class="ovlnote" id="ovlnote"></div>
@@ -244,7 +267,6 @@ input[type=range]{width:100%;accent-color:var(--ice)}
     <div class="group">
       <span class="lbl">Layers</span>
       <div class="toggles">
-        <label class="tg"><input type="checkbox" id="tFc" checked>HRRR forecast</label>
         <label class="tg"><input type="checkbox" id="tGlm">Lightning</label>
         <label class="tg"><input type="checkbox" id="tThr">PW threshold</label>
         <label class="tg"><input type="checkbox" id="tConf">Confidence</label>
@@ -290,8 +312,8 @@ input[type=range]{width:100%;accent-color:var(--ice)}
       </div>
       <div class="ovlnote" id="gifnote"></div>
     </div>
-    <div class="kbd">Space plays or pauses. Arrows step. Z switches domain, L lightning, T threshold. Click the map to chart a point.</div>
-    <div class="foot">TPW: <a href="https://tropic.ssec.wisc.edu/real-time/mtpw2/" target="_blank" rel="noopener">MIMIC-TPW2, UW-CIMSS</a>. Overlays: NOAA RAP analysis; forecast: NOAA HRRR. Lightning: GOES-19 GLM. Soundings: NWS Storm Prediction Center.</div>
+    <div class="kbd">Space plays or pauses. Arrows step. Z switches domain, S satellite, L lightning, T threshold. Click the map to chart a point.</div>
+    <div class="foot">TPW: <a href="https://tropic.ssec.wisc.edu/real-time/mtpw2/" target="_blank" rel="noopener">MIMIC-TPW2, UW-CIMSS</a>. Overlays: NOAA RAP analysis; forecasts: NOAA HRRR and GFS, ECMWF open data (CC BY 4.0). Imagery: GOES-19 ABI. Lightning: GOES-19 GLM. Soundings: NWS Storm Prediction Center.</div>
   </aside>
 </div>
 <script>
@@ -333,7 +355,7 @@ function lutFrom(stops, lo, hi){
 const S = {
   man:null, obs:[], fc:[], vis:[], i:0, playing:true, fps:6, dir:1, mode:"loop",
   dom:"se", base:"tpw", pal:"nrl", units:"mm", ovl:"none", opac:1, span:24,
-  fcOn:true, glm:false, thrOn:false, thr:50.8, conf:false, confH:3,
+  fcSrc:"hrrr", fcDays:5, sat:"none", shade:1, glm:false, thrOn:false, thr:50.8, conf:false, confH:3,
   coast:true, grid:true, marks:true, smooth:true, probe:null,
   gifFrom:null, gifTo:null,     // frame keys; null = loop start / end
 };
@@ -350,7 +372,10 @@ function readHash(){
   if (h.get("op")) S.opac=Math.min(1,Math.max(.1,+h.get("op")));
   if (h.has("thr")){ S.thrOn = true; S.thr = +h.get("thr") || 50.8; }
   if (h.get("glm")==="1") S.glm = true;
-  if (h.get("fc")==="0") S.fcOn = false;
+  if (h.get("fc")) S.fcSrc = h.get("fc") === "0" ? "off" : h.get("fc");
+  if (h.get("fcd")) S.fcDays = +h.get("fcd") || 5;
+  if (h.get("sat")) S.sat = h.get("sat");
+  if (h.get("sh")) S.shade = Math.min(1, Math.max(0, +h.get("sh")));
   if (h.get("conf")){ S.conf = true; S.confH = +h.get("conf") || 3; }
   if (h.get("p")){ const [la,lo] = h.get("p").split(",").map(Number); if (isFinite(la)&&isFinite(lo)) S.probe = {lat:la, lon:lo}; }
 }
@@ -358,7 +383,8 @@ function writeHash(){
   const h = new URLSearchParams({dom:S.dom,base:S.base,pal:S.pal,units:S.units,ovl:S.ovl,span:S.span,op:S.opac.toFixed(2),mode:S.mode});
   if (S.thrOn) h.set("thr", S.thr);
   if (S.glm) h.set("glm", "1");
-  if (!S.fcOn) h.set("fc", "0");
+  h.set("fc", S.fcSrc); if (S.fcSrc === "gfs" || S.fcSrc === "ecmwf") h.set("fcd", S.fcDays);
+  if (S.sat !== "none"){ h.set("sat", S.sat); h.set("sh", S.shade.toFixed(2)); }
   if (S.conf) h.set("conf", S.confH);
   if (S.probe) h.set("p", S.probe.lat.toFixed(2)+","+S.probe.lon.toFixed(2));
   history.replaceState(null,"","#"+h.toString());
@@ -370,23 +396,55 @@ function domains(){
     [{id:"se",name:"Southeast",extent:S.man.extent,dir:"ovl",coast:"coast.png",grid:5,ref_deg:1}];
 }
 function D(){ const ds = domains(); return ds.find(d => d.id === S.dom) || ds[0]; }
-function cycle(){ return S.man && S.man.fc ? S.man.fc.cycle : ""; }
+const FC_NAMES = {hrrr:"HRRR", gfs:"GFS", ecmwf:"ECMWF"};
+const FC_DIRS = {hrrr:"fcpw", gfs:"fc_gfs", ecmwf:"fc_ecmwf"};
+function cycleOf(src){
+  if (!S.man) return "";
+  const m = src === "hrrr" ? S.man.fc : (S.man.fcx || {})[src];
+  return m && m.cycle ? m.cycle : "";
+}
+function cycle(){ return cycleOf("hrrr"); }
 function ovlList(f){
   if (!f || !f.ovl) return [];
+  if (f.fc && f.src !== "hrrr") return [];
   if (Array.isArray(f.ovl)) return S.dom === "se" ? f.ovl : [];
   return f.ovl[D().id] || [];
 }
 function cur(){ return S.vis[S.i]; }
 function loadFrames(m){
   S.obs = (m.frames || []).map(f => ({...f, fc:false}));
-  S.fc = (m.fc && m.fc.frames || []).map(f => ({...f, fc:true, tpw:false, rappw:false, age:false, glm:false}));
+  const mk = (frames, src) => (frames || []).map(f => ({...f, fc:true, src, tpw:false, rappw:false, age:false, glm:false, sat:[]}));
+  S.fcAll = {hrrr: mk(m.fc && m.fc.frames, "hrrr"),
+             gfs: mk(m.fcx && m.fcx.gfs && m.fcx.gfs.frames, "gfs"),
+             ecmwf: mk(m.fcx && m.fcx.ecmwf && m.fcx.ecmwf.frames, "ecmwf")};
+  S.fc = fcFrames();
+}
+function fcFrames(){
+  if (S.fcSrc === "off" || !S.fcAll) return [];
+  const all = S.fcAll[S.fcSrc] || [];
+  if (S.fcSrc === "hrrr" || !all.length) return all;
+  const lastObs = S.obs.length ? new Date(S.obs[S.obs.length-1].t).getTime() : new Date(all[0].t).getTime();
+  return all.filter(f => new Date(f.t).getTime() <= lastObs + S.fcDays*864e5);
+}
+function updateFcOptions(){
+  const sel = $("fcSel");
+  for (const o of sel.options) if (o.value !== "off") o.hidden = !(S.fcAll[o.value] || []).length;
+  if (S.fcSrc !== "off" && !(S.fcAll[S.fcSrc] || []).length)
+    S.fcSrc = ["hrrr","gfs","ecmwf"].find(k => (S.fcAll[k] || []).length) || "off";
+  sel.value = S.fcSrc;
+  $("fcDaysSeg").hidden = !(S.fcSrc === "gfs" || S.fcSrc === "ecmwf");
+  const fr = S.fcAll[S.fcSrc] || [];
+  $("fcnote").textContent = S.fcSrc === "off" ? "Loop ends at the newest observed frame." :
+    S.fcSrc === "hrrr" ? `HRRR ${cycleOf("hrrr").slice(8,10)}Z, hourly PW plus all model overlays.` :
+    `${FC_NAMES[S.fcSrc]} ${cycleOf(S.fcSrc).slice(6,8)}/${cycleOf(S.fcSrc).slice(8,10)}Z, PW only, ` +
+    `${S.fcSrc === "gfs" ? "3-hourly" : "3-hourly to 6 days, then 6-hourly"}; ${fr.length ? "out to " + fmtUTC(fr[fr.length-1].t) : "no frames"}.`;
 }
 
 // ------------------------------------------------------------ data loading
 function gridUrl(kind, f){
-  return kind === "fcpw" ? `data/fcpw/${f.key}.bin?c=${cycle()}` : `data/${kind}/${f.key}.bin`;
+  return kind === "fc" ? `data/${FC_DIRS[f.src]}/${f.key}.bin?c=${cycleOf(f.src)}` : `data/${kind}/${f.key}.bin`;
 }
-function gid(kind, f){ return kind === "fcpw" ? `fcpw/${cycle()}/${f.key}` : `${kind}/${f.key}`; }
+function gid(kind, f){ return kind === "fc" ? `fc/${f.src}/${cycleOf(f.src)}/${f.key}` : `${kind}/${f.key}`; }
 function G(kind, f){ return f ? grids.get(gid(kind, f)) : undefined; }
 async function getGrid(kind, f){
   const id = gid(kind, f);
@@ -400,7 +458,7 @@ async function getGrid(kind, f){
   return grids.get(id);
 }
 function kindsFor(f){
-  if (f.fc) return f.pw ? ["fcpw"] : [];
+  if (f.fc) return f.pw ? ["fc"] : [];
   const k = [];
   if (f.tpw) k.push("tpw");
   if (f.rappw) k.push("rappw");
@@ -429,7 +487,7 @@ async function syncFrames(){
   $("loading").style.display = total ? "grid" : "none";
   await pool(need, 6);
   $("loading").style.display = "none";
-  preloadOverlay(); draw(); drawChart();
+  preloadOverlay(); preloadSat(); draw(); drawChart();
 }
 function preloadOverlay(){
   if (S.ovl === "none") return;
@@ -446,7 +504,7 @@ function valuesAt(f, k){
   const {missing, scale} = S.man;
   const v = (g, sc=scale) => (g && g[k] !== missing) ? g[k]/sc : null;
   const out = {};
-  if (f.fc) out.fc = v(G("fcpw", f));
+  if (f.fc) out.fc = v(G("fc", f));
   else { out.mimic = v(G("tpw", f)); out.rap = v(G("rappw", f));
     const a = G("age", f); out.age = a ? v(a, S.man.age_scale || 10) : undefined;
     const g = G("glm", f); out.glm = g ? g[k] : undefined; }
@@ -466,7 +524,7 @@ function paintBase(ctx, w, h, f, smooth){
   const img = offx.createImageData(nx, ny), d = img.data;
   const put = (i, L, c) => { d[i*4]=L[c*4]; d[i*4+1]=L[c*4+1]; d[i*4+2]=L[c*4+2]; d[i*4+3]=255; };
   let have = false, pending = false;
-  const primary = f.fc ? G("fcpw", f) : G("tpw", f);
+  const primary = f.fc ? G("fc", f) : G("tpw", f);
   if (S.base === "anom"){
     const g = primary; pending = g === undefined && (f.fc ? f.pw : f.tpw);
     if (g && clim){ have = true;
@@ -490,7 +548,7 @@ function paintBase(ctx, w, h, f, smooth){
 }
 function missingText(f){
   if (f.fc) return S.base === "diff" ? "Difference is observed-only; no MIMIC for forecast hours." :
-    S.base === "anom" && !clim ? "Climatology not built yet." : "No HRRR PW for this hour.";
+    S.base === "anom" && !clim ? "Climatology not built yet." : `No ${FC_NAMES[f.src]} PW for this hour.`;
   return {tpw:"No MIMIC analysis for this hour.", rap:"No RAP analysis for this hour.",
     diff:"Difference needs both MIMIC and RAP for this hour.", anom: clim ? "No MIMIC analysis for this hour." : "Climatology not built yet."}[S.base];
 }
@@ -529,7 +587,7 @@ function paintGlm(ctx, w, h, f){
 }
 function paintThr(ctx, w, h, f, k){
   if (!S.thrOn) return;
-  const g = f.fc ? G("fcpw", f) : (S.base === "rap" ? G("rappw", f) : G("tpw", f));
+  const g = f.fc ? G("fc", f) : (S.base === "rap" ? G("rappw", f) : G("tpw", f));
   if (!g) return;
   const {nx, missing, scale, dx} = S.man, [W,,,N] = S.man.extent, [dW,dE,dS,dN] = D().extent;
   const T = S.thr, ny = S.man.ny;
@@ -634,7 +692,9 @@ function drawOverlay(){
   const el = $("ovl"), f = cur();
   if (!f || S.ovl === "none" || !ovlList(f).includes(S.ovl)){
     el.style.visibility = "hidden";
-    if (f && S.ovl !== "none" && !$("notice").textContent) notice(f.fc ? "No HRRR overlay for this hour." : "No model overlay for this hour yet.");
+    if (f && S.ovl !== "none" && !$("notice").textContent)
+      notice(f.fc && f.src !== "hrrr" ? "Model overlays are HRRR-only; GFS and ECMWF tails show PW." :
+             f.fc ? "No HRRR overlay for this hour." : "No model overlay for this hour yet.");
     return;
   }
   const im = getImg(S.ovl, f);
@@ -663,7 +723,7 @@ function fmtUTC(t){
 function fmtLocal(t){
   return new Date(t).toLocaleString("en-US",{hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short",weekday:"short"});
 }
-function fcLabel(f){ return `HRRR ${cycle().slice(8,10)}Z +${f.fh} h`; }
+function fcLabel(f){ return `${FC_NAMES[f.src]} ${cycleOf(f.src).slice(8,10)}Z +${f.fh} h`; }
 function drawChrome(){
   const f = cur(); if (!f) return;
   $("clock").firstChild.nodeValue = fmtUTC(f.t);
@@ -674,7 +734,26 @@ function drawChrome(){
   $("head").style.left = pct+"%"; $("glow").style.width = pct+"%";
   $("track").setAttribute("aria-valuenow", S.i+1); $("track").setAttribute("aria-valuetext", fmtUTC(f.t));
 }
-function draw(){ if (!S.man) return; notice(""); drawBase(); drawOverlay(); drawFx(); drawChrome(); drawChartCursor(); }
+function satSrc(f){ return `data/goes/${D().id}/${S.sat}/${f.key}.jpg`; }
+function hasSat(f){ return !!f && S.sat !== "none" && !f.fc && Array.isArray(f.sat) && f.sat.includes(S.sat); }
+function drawSat(){
+  const el = $("sat"), f = cur(), on = hasSat(f);
+  if (on){ const src = satSrc(f); if (!el.src.endsWith(src)) el.src = src; }
+  el.style.visibility = on ? "visible" : "hidden";
+  const a = on ? S.shade : 1;
+  $("base").style.opacity = a; $("fxlow").style.opacity = a;
+  const note = $("satnote");
+  if (S.sat === "none") note.textContent = "GOES-19 imagery under the PW shading; lower the opacity to see it.";
+  else if (f && f.fc) note.textContent = "Satellite imagery is observed-only; forecast frames show PW.";
+  else if (!on) note.textContent = S.sat === "vis" ? "No visible image for this hour (night, or not processed yet)." : "No IR image for this hour yet.";
+  else note.textContent = S.sat === "vis" ? "Visible reflectance, first scan of the hour (~HH:01)." :
+    "IR: gray is warm to cool; color is colder than −30 °C (blue −45, green −55, yellow −62, red −78, magenta −85).";
+}
+function preloadSat(){
+  if (S.sat === "none") return;
+  for (const f of S.vis) if (hasSat(f)){ const src = satSrc(f); if (!imgs.has(src)){ const im = new Image(); im.decoding = "async"; im.src = src; imgs.set(src, im); } }
+}
+function draw(){ if (!S.man) return; notice(""); drawSat(); drawBase(); drawOverlay(); drawFx(); drawChrome(); drawChartCursor(); }
 
 // ------------------------------------------------------------ timeline
 function buildTicks(){
@@ -686,14 +765,16 @@ function buildTicks(){
     tk.className = "tk" + (f.fc ? " fc" : f.tpw ? " tpw" : " miss") + (hr % 6 === 0 ? " major" : "");
     tk.style.left = pct+"%"; t.appendChild(tk);
     if (f.fc && firstFc < 0) firstFc = i;
-    if (hr % 6 === 0 && (n <= 40 || hr % 12 === 0)){
+    const d = new Date(f.t), mon = d.toLocaleString("en-US",{month:"short",timeZone:"UTC"});
+    const every = n <= 40 ? 6 : n <= 80 ? 12 : 24;
+    if (hr % every === 0 && (every < 24 || (n <= 120 || d.getUTCDate() % 2 === 0))){
       const l = document.createElement("div"); l.className = "lab"; l.style.left = pct+"%";
-      l.textContent = String(hr).padStart(2,"0")+"Z"; t.appendChild(l);
+      l.textContent = every === 24 ? `${mon} ${d.getUTCDate()}` : String(hr).padStart(2,"0")+"Z"; t.appendChild(l);
     }
   });
   if (firstFc > 0){
     const pct = (firstFc - 0.5)/(n-1)*100, dv = document.createElement("div"); dv.className = "divider"; dv.style.left = pct+"%"; t.appendChild(dv);
-    const lb = document.createElement("div"); lb.className = "fclab"; lb.style.left = pct+"%"; lb.textContent = "HRRR"; t.appendChild(lb);
+    const lb = document.createElement("div"); lb.className = "fclab"; lb.style.left = pct+"%"; lb.textContent = FC_NAMES[S.fcSrc] || "Forecast"; t.appendChild(lb);
   }
   $("track").setAttribute("aria-valuemin",1); $("track").setAttribute("aria-valuemax",n);
 }
@@ -742,7 +823,7 @@ function readout(e){
   const {lat, lon} = stageToLL(x, y, r), k = cellIndex(lat, lon);
   if (k < 0){ ro.style.display="none"; return; }
   const v = valuesAt(f, k); let main, lines = [];
-  if (f.fc){ main = S.base === "anom" ? DU(v.anom) : U(v.fc); lines.push(`HRRR ${U(v.fc)}`); }
+  if (f.fc){ main = S.base === "anom" ? DU(v.anom) : U(v.fc); lines.push(`${FC_NAMES[f.src]} ${U(v.fc)}`); }
   else {
     main = S.base==="rap" ? U(v.rap) : S.base==="diff" ? DU(v.mimic!=null&&v.rap!=null ? v.mimic-v.rap : null) : S.base==="anom" ? DU(v.anom) : U(v.mimic);
     lines.push(`MIMIC ${U(v.mimic)}`, `RAP ${U(v.rap)}`);
@@ -782,39 +863,44 @@ function drawChart(){
   const ctx = c.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,cw,ch);
   const k = cellIndex(S.probe.lat, S.probe.lon); if (k < 0) return;
   const inU = v => S.units === "in" ? v/25.4 : v;
-  const pts = {mimic:[], rap:[], fc:[]};
-  S.vis.forEach((f, i) => { const v = valuesAt(f, k);
-    if (f.fc){ if (v.fc != null) pts.fc.push([i, inU(v.fc)]); }
-    else { if (v.mimic != null) pts.mimic.push([i, inU(v.mimic)]); if (v.rap != null) pts.rap.push([i, inU(v.rap)]); } });
-  const t0 = new Date(S.vis[0].t).getTime(), t1 = new Date(S.vis[S.vis.length-1].t).getTime(), n = S.vis.length;
+  const pts = {mimic:[], rap:[], fc:[]}, tm = f => new Date(f.t).getTime();
+  S.vis.forEach(f => { const v = valuesAt(f, k), t = tm(f);
+    if (f.fc){ if (v.fc != null) pts.fc.push([t, inU(v.fc)]); }
+    else { if (v.mimic != null) pts.mimic.push([t, inU(v.mimic)]); if (v.rap != null) pts.rap.push([t, inU(v.rap)]); } });
+  const t0 = tm(S.vis[0]), t1 = Math.max(tm(S.vis[S.vis.length-1]), t0 + 3.6e6);
   const snd = [];
   for (const s of nearbySoundings(S.probe)) for (const o of s.obs){ const t = new Date(o.t).getTime();
-    if (t >= t0 && t <= t1) snd.push([(t - t0)/3.6e6 / Math.max(1,(t1-t0)/3.6e6) * (n-1), inU(o.pw), s.name]); }
+    if (t >= t0 && t <= t1) snd.push([t, inU(o.pw), s.name]); }
   const all = [...pts.mimic, ...pts.rap, ...pts.fc, ...snd].map(p => p[1]);
   if (S.thrOn) all.push(inU(S.thr));
   if (!all.length){ ctx.fillStyle = "#7FA3B8"; ctx.font = "13px Barlow, sans-serif"; ctx.fillText("No data at this point yet.", 8, 20); return; }
   let lo = Math.min(...all), hi = Math.max(...all); const padv = Math.max((hi-lo)*0.12, S.units==="in" ? 0.1 : 2); lo -= padv; hi += padv;
   const L = 34, R = 8, T = 8, B = 20, pw = cw - L - R, ph = ch - T - B;
-  const X = i => L + (n>1 ? i/(n-1) : 0)*pw, Y = v => T + (hi - v)/(hi - lo)*ph;
-  chartGeom = {X, T, B, ch};
+  const X = t => L + (t - t0)/(t1 - t0)*pw, Y = v => T + (hi - v)/(hi - lo)*ph;
+  chartGeom = {X, T, B, ch, tm};
   // grid + y ticks
   ctx.font = "500 10px 'Chakra Petch', sans-serif"; ctx.fillStyle = "#7FA3B8"; ctx.strokeStyle = "rgba(143,239,255,.12)"; ctx.lineWidth = 1;
   const stepv = niceStep((hi-lo)/4);
   for (let v = Math.ceil(lo/stepv)*stepv; v <= hi; v += stepv){ ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(cw-R, Y(v)); ctx.stroke();
     ctx.textAlign = "right"; ctx.fillText(S.units==="in" ? v.toFixed(2) : v.toFixed(0), L-4, Y(v)+3); }
   ctx.textAlign = "center";
-  S.vis.forEach((f, i) => { const hr = new Date(f.t).getUTCHours(); if (hr % 12 === 0) ctx.fillText(String(hr).padStart(2,"0")+"Z", X(i), ch-6); });
-  // forecast shading
+  const spanH = (t1 - t0)/3.6e6, dayStep = Math.max(1, Math.ceil(spanH/24/5));
+  for (let t = Math.ceil(t0/432e5)*432e5; t <= t1; t += 432e5){
+    const d = new Date(t), hr = d.getUTCHours();
+    if (spanH <= 60) ctx.fillText(String(hr).padStart(2,"0")+"Z", X(t), ch-6);
+    else if (hr === 0 && Math.floor(t/864e5) % dayStep === 0) ctx.fillText(`${d.toLocaleString("en-US",{month:"short",timeZone:"UTC"})} ${d.getUTCDate()}`, X(t), ch-6);
+  }
+  // forecast shading starts halfway between the last observed and first forecast frame
   const fi = S.vis.findIndex(f => f.fc);
-  if (fi > 0){ ctx.fillStyle = "rgba(255,181,71,.07)"; ctx.fillRect(X(fi-0.5), T, cw-R-X(fi-0.5), ph); }
+  if (fi > 0){ const xs = X((tm(S.vis[fi-1]) + tm(S.vis[fi]))/2); ctx.fillStyle = "rgba(255,181,71,.07)"; ctx.fillRect(xs, T, cw-R-xs, ph); }
   if (S.thrOn){ ctx.setLineDash([5,4]); ctx.strokeStyle = "rgba(255,181,71,.8)"; ctx.beginPath(); ctx.moveTo(L, Y(inU(S.thr))); ctx.lineTo(cw-R, Y(inU(S.thr))); ctx.stroke(); ctx.setLineDash([]); }
-  const line = (arr, color, dash) => { if (!arr.length) return; ctx.setLineDash(dash||[]); ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-    let prev = null; for (const [i,v] of arr){ if (prev !== null && i - prev > 1) ctx.moveTo(X(i), Y(v)); else if (prev === null) ctx.moveTo(X(i), Y(v)); else ctx.lineTo(X(i), Y(v)); prev = i; }
+  const line = (arr, color, dash, maxGapH) => { if (!arr.length) return; ctx.setLineDash(dash||[]); ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+    let prev = null; for (const [t,v] of arr){ if (prev === null || (t - prev)/3.6e6 > maxGapH) ctx.moveTo(X(t), Y(v)); else ctx.lineTo(X(t), Y(v)); prev = t; }
     ctx.stroke(); ctx.setLineDash([]); };
-  line(pts.rap, "rgba(230,245,255,.75)", [4,3]); line(pts.mimic, "#8FEFFF"); line(pts.fc, "#FFB547");
+  line(pts.rap, "rgba(230,245,255,.75)", [4,3], 1.5); line(pts.mimic, "#8FEFFF", null, 1.5); line(pts.fc, "#FFB547", null, 6.5);
   for (const [x, v] of snd){ ctx.fillStyle = "#FF4F8B"; ctx.strokeStyle = "#061A2B"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(X(x), Y(v), 4, 0, Math.PI*2); ctx.fill(); ctx.stroke(); }
   $("chartkey").innerHTML = `<span style="--c:#8FEFFF">MIMIC</span><span style="--c:rgba(230,245,255,.75)">RAP</span>` +
-    (pts.fc.length ? `<span style="--c:#FFB547">HRRR</span>` : "") + (snd.length ? `<span style="--c:#FF4F8B">${snd[0][2]} sounding</span>` : "");
+    (pts.fc.length ? `<span style="--c:#FFB547">${FC_NAMES[S.fcSrc]}</span>` : "") + (snd.length ? `<span style="--c:#FF4F8B">${snd[0][2]} sounding</span>` : "");
   drawChartCursor();
 }
 function niceStep(x){ const p = Math.pow(10, Math.floor(Math.log10(x))), m = x/p; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p; }
@@ -823,7 +909,7 @@ function drawChartCursor(){
   const f = cur(); if (!f) return;
   const k = cellIndex(S.probe.lat, S.probe.lon); if (k < 0) return;
   const v = valuesAt(f, k);
-  $("probeNow").textContent = f.fc ? `${fmtUTC(f.t)} (${fcLabel(f)}): HRRR ${U(v.fc)}` :
+  $("probeNow").textContent = f.fc ? `${fmtUTC(f.t)} (${fcLabel(f)}): ${FC_NAMES[f.src]} ${U(v.fc)}` :
     `${fmtUTC(f.t)}: MIMIC ${U(v.mimic)}, RAP ${U(v.rap)}` + (v.mimic!=null && v.rap!=null ? `, diff ${DU(v.mimic - v.rap)}` : "");
   // cursor is drawn on a lightweight overlay: redraw the vertical line by compositing
   const c = $("chart"), ctx = c.getContext("2d");
@@ -831,7 +917,8 @@ function drawChartCursor(){
   else ctx.putImageData(chartGeom.snapshot, 0, 0);
   const dpr = c.width / (c.clientWidth || 280); ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 1; ctx.beginPath();
-  ctx.moveTo(chartGeom.X(S.i), chartGeom.T); ctx.lineTo(chartGeom.X(S.i), chartGeom.ch - chartGeom.B); ctx.stroke();
+  const cx = chartGeom.X(chartGeom.tm(f));
+  ctx.moveTo(cx, chartGeom.T); ctx.lineTo(cx, chartGeom.ch - chartGeom.B); ctx.stroke();
 }
 
 // ------------------------------------------------------------ legend
@@ -918,8 +1005,9 @@ function paintFooter(ctx, w, y0, fh, k, f){
   ctx.fillStyle = "#7FA3B8"; ctx.font = `500 ${13*k}px "Chakra Petch", sans-serif`;
   ctx.fillText(f.fc ? `${fcLabel(f)} forecast, ${fmtLocal(f.t)}` : fmtLocal(f.t), pad + tw + 12*k, y0 + 30*k);
   const o = (S.man.overlays||[]).find(o => o.id === S.ovl);
-  const field = f.fc ? (S.base === "anom" ? "HRRR PW anomaly" : "HRRR precipitable water") : FIELD_NAME[S.base];
-  const extras = [S.thrOn ? `${U(S.thr)} contour` : "", S.glm && !f.fc ? "GLM lightning" : ""].filter(Boolean).join(", ");
+  const field = f.fc ? `${FC_NAMES[f.src]} ${S.base === "anom" ? "PW anomaly" : "precipitable water"}` : FIELD_NAME[S.base];
+  const extras = [hasSat(f) ? (S.sat === "vis" ? "GOES-19 visible" : "GOES-19 IR") : "",
+    S.thrOn ? `${U(S.thr)} contour` : "", S.glm && !f.fc ? "GLM lightning" : ""].filter(Boolean).join(", ");
   ctx.font = `500 ${13*k}px "Barlow", sans-serif`; ctx.fillStyle = "#DCEFF7";
   ctx.fillText(`${D().name}: ${field}${o ? " with " + (f.fc ? "HRRR " : "RAP ") + o.name : ""}${extras ? "; " + extras : ""}`, pad, y0 + 50*k);
   const {lo, hi, stops, ticks} = legendSpec(), bw = Math.round(w*0.28), bx = w - pad - bw, by = y0 + 14*k, bh = Math.round(12*k);
@@ -927,7 +1015,7 @@ function paintFooter(ctx, w, y0, fh, k, f){
   ctx.fillStyle = "#7FA3B8"; ctx.font = `500 ${11*k}px "Chakra Petch", sans-serif`; ctx.textAlign = "center";
   for (const [v,l] of ticks){ if (v<lo||v>hi) continue; ctx.fillText(l, bx + (v-lo)/(hi-lo)*bw, by + bh + 13*k); }
   ctx.textAlign = "right"; ctx.font = `500 ${10*k}px "Barlow", sans-serif`;
-  ctx.fillText(`${S.units}  |  UW-CIMSS MIMIC-TPW2, NOAA RAP/HRRR, GOES-19 GLM`, w - pad, y0 + fh - 6*k);
+  ctx.fillText(`${S.units}  |  UW-CIMSS MIMIC-TPW2, NOAA RAP/HRRR/GFS, ECMWF, GOES-19`, w - pad, y0 + fh - 6*k);
   ctx.textAlign = "left";
 }
 async function exportGif(){
@@ -951,8 +1039,12 @@ async function exportGif(){
       btn.textContent = `Encoding ${i+1}/${frames.length}`;
       ctx.fillStyle = "#0B1F33"; ctx.fillRect(0, 0, w, H);
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
+      const satOn = hasSat(f), satIm = satOn ? await loadImage(satSrc(f)) : null;
+      if (satIm) ctx.drawImage(satIm, 0, 0, w, h);
+      ctx.globalAlpha = satIm ? S.shade : 1;
       const {have} = paintBase(ctx, w, h, f, S.smooth);
       paintConf(ctx, w, h, f, k);
+      ctx.globalAlpha = 1;
       if (S.ovl !== "none" && ovlList(f).includes(S.ovl)){
         const im = await loadImage(getImg(S.ovl, f).src);
         if (im){ ctx.globalAlpha = S.opac; ctx.drawImage(im, 0, 0, w, h); ctx.globalAlpha = 1; }
@@ -996,7 +1088,8 @@ function seg(id, key, onChange){
 }
 function setVisible(){
   const keep = cur() && cur().key;
-  S.vis = S.obs.slice(-S.span).concat(S.fcOn ? S.fc : []);
+  S.fc = fcFrames();
+  S.vis = S.obs.slice(-S.span).concat(S.fc);
   const j = S.vis.findIndex(f => f.key === keep);
   const lastObs = S.vis.reduce((a, f, i) => f.fc ? a : i, 0);
   S.i = j >= 0 ? j : lastObs;
@@ -1048,12 +1141,20 @@ function wire(){
   tg("tGrid","grid",drawGrid);
   tg("tMarks","marks",drawMarks);
   tg("tSmooth","smooth",drawBase);
-  tg("tFc","fcOn",() => { setVisible(); syncFrames(); });
   tg("tGlm","glm",() => { toggleLayer("glm","glmSub"); syncFrames(); });
   tg("tThr","thrOn",() => { toggleLayer("thrOn","thrSub"); drawFx(); drawChart(); });
   tg("tConf","conf",() => { toggleLayer("conf","confSub"); syncFrames(); });
   toggleLayer("glm","glmSub"); toggleLayer("thrOn","thrSub"); toggleLayer("conf","confSub");
-  $("tFc").parentElement.hidden = !S.fc.length;
+  updateFcOptions();
+  $("fcSel").addEventListener("change", e => { S.fcSrc = e.target.value; updateFcOptions(); setVisible(); freshness(); syncFrames(); writeHash(); });
+  seg("fcDaysSeg","fcDays",() => { setVisible(); updateFcOptions(); syncFrames(); });
+  $("satSel").value = S.sat;
+  const syncShade = () => { $("shade").value = Math.round(S.shade*100); $("shadev").textContent = $("shade").value + "%"; };
+  syncShade();
+  $("satSel").addEventListener("change", e => { S.sat = e.target.value;
+    if (S.sat !== "none" && S.shade > 0.95) S.shade = 0.4; if (S.sat === "none") S.shade = 1;
+    syncShade(); preloadSat(); draw(); writeHash(); });
+  $("shade").addEventListener("input", e => { S.shade = e.target.value/100; $("shadev").textContent = e.target.value + "%"; drawSat(); writeHash(); });
   $("thr").value = S.thr;
   $("thr").addEventListener("input", e => { S.thr = +e.target.value; $("thrv").textContent = U(S.thr); drawFx(); drawChart(); });
   $("thr").addEventListener("change", writeHash);
@@ -1087,6 +1188,8 @@ function wire(){
       S.dom = ds[(j+1) % ds.length].id; syncDom(); applyDomain(); writeHash(); }
     else if (e.key === "l" || e.key === "L") flip("tGlm");
     else if (e.key === "t" || e.key === "T") flip("tThr");
+    else if (e.key === "s" || e.key === "S"){ const order = ["none","ir","vis"], sel = $("satSel");
+      sel.value = order[(order.indexOf(S.sat) + 1) % order.length]; sel.dispatchEvent(new Event("change")); }
   });
 
   const st = $("stage");
@@ -1108,7 +1211,7 @@ function freshness(){
   const hrs = (Date.now() - new Date(last.t).getTime())/3.6e6;
   led.className = "led " + (hrs < 4 ? "ok" : hrs < 8 ? "stale" : "old");
   txt.textContent = `Latest MIMIC ${fmtUTC(last.t)}, ${hrs < 1 ? "under an hour" : Math.round(hrs)+" h"} old` +
-    (S.fc.length ? `. HRRR ${cycle().slice(8,10)}Z tail to ${fmtUTC(S.fc[S.fc.length-1].t)}` : "");
+    (S.fc.length ? `. ${FC_NAMES[S.fcSrc]} ${cycleOf(S.fcSrc).slice(8,10)}Z tail to ${fmtUTC(S.fc[S.fc.length-1].t)}` : "");
 }
 
 // ------------------------------------------------------------ boot
@@ -1142,11 +1245,11 @@ async function boot(){
         const oldClim = S.man.clim && S.man.clim.last;
         S.man = m; loadFrames(m);
         for (const f of S.obs.slice(-6)) for (const kind of ["tpw","age","rappw","glm"]) grids.delete(`${kind}/${f.key}`);
-        for (const src of [...imgs.keys()]) if (src.includes("_fc/") || S.obs.slice(-2).some(f => src.includes("/"+f.key+".png"))) imgs.delete(src);
+        for (const src of [...imgs.keys()]) if (src.includes("_fc/") || S.obs.slice(-2).some(f => src.includes("/"+f.key+".png") || src.includes("/"+f.key+".jpg"))) imgs.delete(src);
         if (m.clim && m.clim.last !== oldClim) await loadClim();
         setVisible();
         if (atEnd) S.i = S.vis.reduce((a, f, i) => f.fc ? a : i, 0);
-        $("tFc").parentElement.hidden = !S.fc.length; $("anomBtn").hidden = !m.clim;
+        updateFcOptions(); $("anomBtn").hidden = !m.clim;
         freshness(); syncFrames();
       } } catch {}
   }, 3*60*1000);
