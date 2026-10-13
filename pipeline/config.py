@@ -63,6 +63,20 @@ HRRR_LEVELS = [925, 850, 700, 500]   # enough for q·V, theta-e, 925-700 MFC and
 FC_HOURS = 12                        # forecast frames after the last observed frame
 HRRR_STRIDE = 3                      # thin the 3 km grid to ~9 km before regridding to 0.1°
 
+# ---- Long-range PW tails (PW only, no overlays)
+GFS_AWS = "https://noaa-gfs-bdp-pds.s3.amazonaws.com"
+GFS_STEPS = list(range(3, 241, 3))                                  # 3-hourly to 10 days
+ECMWF_ROOTS = ["https://data.ecmwf.int/forecasts",                  # primary
+               "https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com"]  # AWS mirror
+ECMWF_STEPS = list(range(3, 145, 3)) + list(range(150, 241, 6))     # 00/12Z HRES open data
+LONG_WORKERS = 6
+
+# ---- GOES-East ABI imagery (CONUS sector cloud & moisture imagery, per band)
+ABI_PRODUCT = "ABI-L2-CMIPC"
+ABI_BANDS = {"vis": 2, "ir": 13}     # 0.64 um red visible, 10.3 um clean longwave IR
+GOES_MAX_PER_RUN = 10                # band-hours per run (visible files are ~30-60 MB)
+VIS_MIN_SUN_ELEV = 3.0               # skip visible when the sun is below this at the domain center
+
 # ---- GOES-East GLM flash density (flashes in the hour ending at each frame time)
 GLM_BUCKET = "https://noaa-goes19.s3.amazonaws.com"
 GLM_SAT = "G19"

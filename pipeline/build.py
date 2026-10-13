@@ -21,7 +21,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from . import clim, glm, mimic, rap, render, soundings
+from . import clim, glm, goes, longrange, mimic, rap, render, soundings
 from . import config as C
 
 log = logging.getLogger("build")
@@ -51,6 +51,7 @@ def write_bin(path, arr, scale=C.SCALE):
 
 
 PER_HOUR_DIRS = ("tpw", "age", "rappw", "glm")
+SAT_KINDS = tuple(C.ABI_BANDS)
 
 
 def prune(site, keep_keys):
@@ -60,6 +61,13 @@ def prune(site, keep_keys):
             for fn in os.listdir(d):
                 if fn.split(".")[0] not in keep_keys:
                     os.remove(os.path.join(d, fn))
+    for dom in C.DOMAINS:
+        for kind in SAT_KINDS:
+            d = os.path.join(site, "data", "goes", dom["id"], kind)
+            if os.path.isdir(d):
+                for fn in os.listdir(d):
+                    if fn.split(".")[0] not in keep_keys:
+                        os.remove(os.path.join(d, fn))
     ids = {o["id"] for o in render.OVERLAYS}
     for dom in C.DOMAINS:
         root = os.path.join(site, "data", dom["dir"])
@@ -239,10 +247,28 @@ def main():
         else:
             log.info("GLM %s: only %d files so far, retrying next run", C.key(t), nfiles)
 
+    # ---- GOES-East ABI imagery (visible by day, clean IR always)
+    n_sat = 0
+    lat_c, lon_c = (C.S + C.N) / 2, (C.W + C.E) / 2
+    for t in sorted(times, reverse=True):
+        if n_sat >= C.GOES_MAX_PER_RUN or real_now < t + dt.timedelta(minutes=8):
+            continue
+        kinds = [k for k in SAT_KINDS
+                 if not all(os.path.exists(goes.path_for(site, d["id"], k, C.key(t))) for d in C.DOMAINS)
+                 and (k != "vis" or goes.sun_elevation(t, lat_c, lon_c) >= C.VIS_MIN_SUN_ELEV)]
+        if not kinds:
+            continue
+        kinds = kinds[:max(0, C.GOES_MAX_PER_RUN - n_sat)]
+        done = step("GOES", goes.process_hour, s, site, t, kinds) or []
+        n_sat += len(kinds)
+        log.info("GOES %s: %s", C.key(t), ", ".join(done) if done else "no imagery yet")
+
     # ---- HRRR forecast tail after the newest MIMIC frame
     obs_times = [t for t in times if os.path.exists(os.path.join(data, "tpw", f"{C.key(t)}.bin"))]
     last_obs = max(obs_times) if obs_times else now - dt.timedelta(hours=1)
     fc_meta = step("HRRR tail", build_forecast, s, site, last_obs)
+    fcx = {src: step(f"{src.upper()} tail", longrange.build, s, site, src, last_obs, write_bin)
+           for src in longrange.SOURCES}
 
     # ---- observed sounding PW
     raob = step("soundings", soundings.fetch, s, times[-1] - dt.timedelta(hours=12),
@@ -263,9 +289,12 @@ def main():
         ovl = {d["id"]: [o["id"] for o in render.OVERLAYS
                          if os.path.exists(render.overlay_path(site, d, o["id"], k))]
                for d in C.DOMAINS}
+        sat = [kind for kind in SAT_KINDS
+               if all(os.path.exists(goes.path_for(site, d["id"], kind, k)) for d in C.DOMAINS)]
         if has["tpw"] or has["rappw"] or any(ovl.values()):
             frames.append({"t": t.strftime("%Y-%m-%dT%H:%MZ"), "key": k, "tpw": has["tpw"],
-                           "age": has["age"], "rappw": has["rappw"], "glm": has["glm"], "ovl": ovl})
+                           "age": has["age"], "rappw": has["rappw"], "glm": has["glm"], "ovl": ovl,
+                           "sat": sat})
 
     manifest = {
         "generated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -279,6 +308,7 @@ def main():
         "overlays": render.OVERLAYS,
         "frames": frames,
         "fc": fc_meta,
+        "fcx": fcx,
         "clim": clim_meta,
         "soundings": raob,
     }
@@ -290,9 +320,11 @@ def main():
     for fn in os.listdir(web):
         shutil.copy2(os.path.join(web, fn), os.path.join(site, fn))
 
-    log.info("done: %d frames (%d with MIMIC), %d forecast frames, in %.0f s",
-             len(frames), sum(fr["tpw"] for fr in frames),
-             len(fc_meta["frames"]) if fc_meta else 0, time.time() - t0)
+    log.info("done: %d frames (%d with MIMIC, %d with GOES IR), forecast frames HRRR %d / GFS %d / ECMWF %d, in %.0f s",
+             len(frames), sum(fr["tpw"] for fr in frames), sum("ir" in fr["sat"] for fr in frames),
+             len(fc_meta["frames"]) if fc_meta else 0,
+             len(fcx["gfs"]["frames"]) if fcx.get("gfs") else 0,
+             len(fcx["ecmwf"]["frames"]) if fcx.get("ecmwf") else 0, time.time() - t0)
 
 
 if __name__ == "__main__":

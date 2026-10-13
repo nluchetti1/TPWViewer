@@ -86,7 +86,7 @@ def probe_glm(s):
 
 
 def probe_raob(s):
-    print("== Soundings (IEM) ==")
+    print("== Soundings (SPC) ==")
     from . import soundings
     now = C.utc_now_hour()
     for st in soundings.fetch(s, now - dt.timedelta(days=3), now + dt.timedelta(hours=1)):
@@ -94,12 +94,43 @@ def probe_raob(s):
             last = st["obs"][-1]
             ok(f"{st['id']}: {len(st['obs'])} soundings in 3 days; latest {last['t']} PW {last['pw']} mm")
         else:
-            bad(f"{st['id']}: no soundings with PW in 3 days (station id may differ at IEM)")
+            bad(f"{st['id']}: no soundings with PW in 3 days (check the station id on SPC)")
+
+
+def probe_long(s):
+    print("== GFS / ECMWF long-range PW ==")
+    from . import longrange
+    iy, ix = int((C.N - 28.49) / C.DX), int((-80.58 - C.W) / C.DX)
+    for src in longrange.SOURCES:
+        steps = C.GFS_STEPS if src == "gfs" else C.ECMWF_STEPS
+        for c in longrange._cycles(src, C.utc_now_hour()):
+            if longrange.available(s, src, c, steps[-1]):
+                b = longrange.fetch_pw_bytes(s, src, c, 24)
+                pw = longrange.decode_pw(b)
+                ok(f"{src.upper()} {C.key(c)}Z complete to {steps[-1]} h; f024 record {len(b)/1e6:.2f} MB, "
+                   f"PW at the Cape {pw[iy, ix]:.1f} mm, domain {np.nanmin(pw):.0f}-{np.nanmax(pw):.0f} mm")
+                break
+        else:
+            bad(f"{src.upper()}: no complete cycle in the last 36 h")
+
+
+def probe_goes(s):
+    print("== GOES-19 ABI imagery ==")
+    from . import goes
+    t = C.utc_now_hour() - dt.timedelta(hours=1)
+    keys = goes.list_hour(s, t)
+    if not keys:
+        return bad(f"no {C.ABI_PRODUCT} files for {t:%HZ} (check GLM_BUCKET / ABI_PRODUCT)")
+    k = goes.pick(keys, C.ABI_BANDS["ir"])
+    ok(f"{len(keys)} files in the {t:%HZ} hour; IR file {k.rsplit('/', 1)[-1][:60]}")
+    blob = s.get(f"{C.GLM_BUCKET}/{k}", timeout=180).content
+    imgs = goes.render(blob, "ir", C.DOMAINS)
+    ok(f"IR rendered for {', '.join(imgs)} ({len(blob)/1e6:.1f} MB file)")
 
 
 if __name__ == "__main__":
     s = session()
-    for fn in (probe_mimic, probe_rap, probe_hrrr, probe_glm, probe_raob):
+    for fn in (probe_mimic, probe_rap, probe_hrrr, probe_glm, probe_raob, probe_long, probe_goes):
         try:
             fn(s)
         except Exception as exc:  # noqa: BLE001
