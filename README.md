@@ -27,13 +27,15 @@ Check every data source first (Colab or laptop):
 | Anomaly | MIMIC rolling mean | 30-day 00/12Z mean at cold start, then ~30-day EMA |
 | Model overlays (9) | RAP f00, per domain | q·V, MFC, streamlines, 500 hPa, theta-e, MLCAPE, PW contours |
 | Forecast tail | HRRR wrfprs (AWS) | 12 h after the newest MIMIC frame, same overlays, amber timeline |
+| Long-range tail | GFS 0.25° (AWS), ECMWF open data | PW only, 3-hourly (ECMWF 6-hourly after 6 days), 3/5/10-day choice |
+| Satellite | GOES-19 ABI CMIPC (AWS) | Band 2 visible (daytime) and band 13 clean IR, per-domain JPEGs |
 | Lightning | GOES-19 GLM L2 LCFA (AWS) | Flashes per 0.1° cell in the hour ending at each frame |
 | Confidence hatch | MIMIC timeAwayGrid | Hatches where the nearest real pass is > 2/3/6 h away |
 | PW threshold | browser | Adjustable contour on the shaded field, in GIFs too |
-| Point history | browser + IEM RAOB | Click the map: MIMIC, RAP, HRRR and XMR sounding PW |
+| Point history | browser + SPC observed soundings | Click the map: MIMIC, RAP, HRRR and XMR sounding PW |
 | GIF export | browser (gifenc) | Current loop with all layers and a labeled footer |
 
-Keyboard: Space play/pause, arrows step, Z domain, L lightning, T threshold.
+Keyboard: Space play/pause, arrows step, Z domain, S satellite, L lightning, T threshold.
 The URL hash keeps the full view (domain, field, overlay, layers, probe point).
 
 ## Pipeline
@@ -44,7 +46,9 @@ The URL hash keeps the full view (domain, field, overlay, layers, probe point).
 | `pipeline/rap.py` | RAP/HRRR .idx byte-range fetch, Lambert wind rotation, regrid, q·V / theta-e / MFC |
 | `pipeline/render.py` | Overlay PNGs per domain (and `_fc` copies for HRRR), coastlines |
 | `pipeline/glm.py` | GLM listing, parallel download, flash binning |
-| `pipeline/soundings.py` | IEM RAOB CSV → integrated PW |
+| `pipeline/longrange.py` | GFS PWAT / ECMWF tcwv byte-range fetch → PW tails |
+| `pipeline/goes.py` | ABI fixed-grid navigation → visible / IR frames per domain |
+| `pipeline/soundings.py` | SPC observed soundings (incl. XMR 10Z/15Z) → integrated PW |
 | `pipeline/clim.py` | Rolling PW mean for the anomaly view |
 | `pipeline/build.py` | Orchestrator: incremental, prunes to 48 h, writes `data/manifest.json` |
 | `pipeline/probe.py` | Live check of every source |
