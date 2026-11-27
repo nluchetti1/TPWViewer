@@ -223,10 +223,10 @@ input[type=range]{width:100%;accent-color:var(--ice)}
     <div class="group">
       <label for="fcSel">Forecast tail</label>
       <select id="fcSel">
+        <option value="off">Off (observed only)</option>
         <option value="hrrr">HRRR, 12 h with overlays</option>
         <option value="gfs">GFS, up to 10 days</option>
         <option value="ecmwf">ECMWF, up to 10 days</option>
-        <option value="off">Off (observed only)</option>
       </select>
       <div class="seg" id="fcDaysSeg"><button data-v="3">3 days</button><button data-v="5" aria-pressed="true">5 days</button><button data-v="10">10 days</button></div>
       <div class="ovlnote" id="fcnote"></div>
@@ -294,7 +294,7 @@ input[type=range]{width:100%;accent-color:var(--ice)}
 
     <div class="group">
       <label for="palSel">Color scale</label>
-      <select id="palSel"><option value="nrl">NRL-style</option><option value="hud">Ice core</option></select>
+      <select id="palSel"><option value="hud">Ice core</option><option value="nrl">NRL-style</option></select>
     </div>
     <div class="group">
       <span class="lbl">Loop length (observed)</span>
@@ -358,8 +358,8 @@ function lutFrom(stops, lo, hi){
 // ------------------------------------------------------------ state
 const S = {
   man:null, obs:[], fc:[], vis:[], i:0, playing:true, fps:6, dir:1, mode:"loop",
-  dom:"se", base:"tpw", pal:"nrl", units:"mm", ovl:"none", opac:1, span:24,
-  fcSrc:"hrrr", fcDays:5, sat:"none", shade:1, glm:false, thrOn:false, thr:50.8, conf:false, confH:3,
+  dom:"se", base:"tpw", pal:"hud", units:"mm", ovl:"none", opac:1, span:24,
+  fcSrc:"off", fcDays:5, sat:"none", shade:1, glm:false, thrOn:false, thr:50.8, conf:false, confH:3,
   coast:true, grid:true, marks:true, smooth:true, probe:null,
   gifFrom:null, gifTo:null,     // frame keys; null = sequence start / end
   gifFc:"same",                 // forecast tail in the GIF: same | none | hrrr | gfs | ecmwf
